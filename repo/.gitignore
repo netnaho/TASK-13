@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+.env
+*.log
+/tmp/
+/unit_tests/node_modules/
+.claude/
