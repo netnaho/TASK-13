@@ -9,8 +9,12 @@
     "skipLibCheck": true,
     "outDir": "./dist",
     "rootDir": ".",
+    "baseUrl": ".",
     "paths": {
-      "../backend/src/*": ["../backend/src/*"]
+      "../backend/src/*": ["../backend/src/*"],
+      "@nestjs/common": ["./mocks/nestjs.ts"],
+      "@nestjs/*": ["./mocks/nestjs.ts"],
+      "typeorm": ["./mocks/typeorm.ts"]
     }
   },
   "include": ["./**/*.ts"]
