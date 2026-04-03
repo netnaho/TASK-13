@@ -25,7 +25,8 @@
     "moduleNameMapper": {
       "^@nestjs/common$": "<rootDir>/mocks/nestjs.ts",
       "^@nestjs/(.*)$": "<rootDir>/mocks/nestjs.ts",
-      "^typeorm$": "<rootDir>/mocks/typeorm.ts"
+      "^typeorm$": "<rootDir>/mocks/typeorm.ts",
+      "^winston$": "<rootDir>/mocks/winston.ts"
     }
   }
 }
