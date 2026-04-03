@@ -25,15 +25,15 @@ services:
       - path: .env
         required: false
     environment:
-      NODE_ENV: ${NODE_ENV:-production}
+      NODE_ENV: ${NODE_ENV:-development}
       PORT: 3001
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: petmarket
       DB_PASSWORD: ${DB_PASSWORD:-petmarket_secret}
       DB_NAME: petmarket
-      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env — see .env.example}
-      FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:?Set FIELD_ENCRYPTION_KEY in .env — see .env.example}
+      JWT_SECRET: ${JWT_SECRET:-}
+      FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:-}
       BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-10}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
     ports:
