@@ -17,7 +17,7 @@ All services start automatically. DB schema syncs and seed data loads on first b
 |------------|-----------------------|--------------------------------------------|
 | Frontend   | http://localhost:3000 | React + Vite UI                            |
 | Backend    | http://localhost:3001 | NestJS REST API (prefix: `/api`)           |
-| PostgreSQL | localhost:5432        | PostgreSQL 16 (user: petmarket)            |
+| PostgreSQL | localhost:5433        | PostgreSQL 16 (user: petmarket) — host port 5433 maps to container port 5432 |
 
 ## Default Accounts
 

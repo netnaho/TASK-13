@@ -13,6 +13,8 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { EncryptionService } from '../common/encryption/encryption.service';
 import { AuditService } from '../audit/audit.service';
+import { UserSanitizerService } from '../common/sanitization/user-sanitizer.service';
+import { UserView } from '../common/sanitization/user-view.model';
 import { logger } from '../common/logger/winston.logger';
 import { runSeed } from '../database/seed';
 
@@ -25,6 +27,7 @@ export class AuthService implements OnApplicationBootstrap {
     private readonly dataSource: DataSource,
     private readonly encryption: EncryptionService,
     private readonly auditService: AuditService,
+    private readonly sanitizer: UserSanitizerService,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -35,7 +38,7 @@ export class AuthService implements OnApplicationBootstrap {
     }
   }
 
-  async register(dto: RegisterDto): Promise<Omit<User, 'passwordHash'>> {
+  async register(dto: RegisterDto): Promise<UserView> {
     const existingUsername = await this.userRepo.findOne({
       where: { username: dto.username },
     });
@@ -65,15 +68,14 @@ export class AuthService implements OnApplicationBootstrap {
 
     logger.info(`User registered: ${saved.username}`, { context: 'Auth' });
 
-    const { passwordHash: _ph, ...safe } = saved;
-    return { ...safe, email: dto.email };
+    return this.sanitizer.sanitize(saved, saved.role);
   }
 
   async login(
     dto: LoginDto,
     ip?: string,
     deviceFingerprint?: string,
-  ): Promise<{ token: string; user: Partial<User> }> {
+  ): Promise<{ token: string; user: UserView }> {
     const user = await this.userRepo.findOne({
       where: { username: dto.username, isActive: true },
     });
@@ -132,22 +134,6 @@ export class AuthService implements OnApplicationBootstrap {
       deviceFingerprint,
     });
 
-    const { passwordHash: _ph, ...safeUser } = user;
-    const decryptedEmail = this.encryption.decrypt(safeUser.email);
-    return { token, user: { ...safeUser, email: decryptedEmail } };
-  }
-
-  sanitizeUserForRole(user: Partial<User>, requesterRole: string): Partial<User> {
-    if (requesterRole === 'admin') {
-      return {
-        ...user,
-        email: user.email ? this.encryption.decrypt(user.email) : user.email,
-        deviceFingerprint: user.deviceFingerprint
-          ? this.encryption.decrypt(user.deviceFingerprint)
-          : user.deviceFingerprint,
-      };
-    }
-    const { deviceFingerprint: _df, ...safe } = user;
-    return { ...safe, email: '***encrypted***' };
+    return { token, user: this.sanitizer.sanitize(user, user.role) };
   }
 }

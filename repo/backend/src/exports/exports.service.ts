@@ -1,6 +1,7 @@
 import {
   Injectable,
   NotFoundException,
+  ForbiddenException,
   OnModuleInit,
   OnModuleDestroy,
   HttpException,
@@ -14,6 +15,7 @@ import { ExportJob, ExportJobStatus } from '../database/entities/export-job.enti
 import { CreateExportJobDto } from './dto/export.dto';
 import { EncryptionService } from '../common/encryption/encryption.service';
 import { logger } from '../common/logger/winston.logger';
+import { safeDeleteFile } from './export-file.util';
 
 const MAX_CONCURRENT = 2;
 const EXPIRY_DAYS = 7;
@@ -42,7 +44,19 @@ export class ExportsService implements OnModuleInit, OnModuleDestroy {
     if (this.pollTimer) clearInterval(this.pollTimer);
   }
 
-  async createJob(requesterId: string, dto: CreateExportJobDto): Promise<ExportJob> {
+  async createJob(requesterId: string, requesterRole: string, dto: CreateExportJobDto): Promise<ExportJob> {
+    // Audit exports contain internal security data — admin only
+    if (dto.type === 'audit' && requesterRole !== 'admin') {
+      throw new ForbiddenException('Audit exports are restricted to admins');
+    }
+    // ops_reviewer and finance_admin may only export settlements
+    if (
+      (requesterRole === 'ops_reviewer' || requesterRole === 'finance_admin') &&
+      dto.type !== 'settlements'
+    ) {
+      throw new ForbiddenException(`Role ${requesterRole} may only export settlements`);
+    }
+
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + EXPIRY_DAYS);
 
@@ -89,7 +103,7 @@ export class ExportsService implements OnModuleInit, OnModuleDestroy {
       throw new HttpException('Export is still processing', HttpStatus.ACCEPTED);
     }
     if (job.expiresAt && new Date() > new Date(job.expiresAt)) {
-      await this.exportRepo.update(id, { status: ExportJobStatus.EXPIRED });
+      await this.expireJob(job);
       throw new NotFoundException('Export file has expired');
     }
 
@@ -131,22 +145,31 @@ export class ExportsService implements OnModuleInit, OnModuleDestroy {
       const requester = await this.dataSource
         .getRepository('User')
         .findOne({ where: { id: job.requesterId } });
-      const isAdmin = !!(requester && (requester as any).role === 'admin');
+      const requesterRole: string = (requester as any)?.role ?? 'vendor';
+      const isAdmin = requesterRole === 'admin';
+
+      const ctx: ExportContext = {
+        requesterId: job.requesterId,
+        requesterRole,
+        isAdmin,
+        maskEmail: (encrypted: string | null | undefined) =>
+          !encrypted ? 'N/A' : isAdmin ? this.encryption.decrypt(encrypted) : '***',
+      };
 
       let csv = '';
 
       switch (type) {
         case 'listings':
-          csv = await this.exportListings(filters, isAdmin);
+          csv = await this.exportListings(filters, ctx);
           break;
         case 'conversations':
-          csv = await this.exportConversations(filters, isAdmin);
+          csv = await this.exportConversations(filters, ctx);
           break;
         case 'settlements':
-          csv = await this.exportSettlements(filters, isAdmin);
+          csv = await this.exportSettlements(filters, ctx);
           break;
         case 'audit':
-          csv = await this.exportAudit(filters);
+          csv = await this.exportAudit(filters, ctx);
           break;
         default:
           csv = 'id\nno_data';
@@ -167,7 +190,7 @@ export class ExportsService implements OnModuleInit, OnModuleDestroy {
 
   private async exportListings(
     filters: Record<string, unknown>,
-    isAdmin: boolean,
+    ctx: ExportContext,
   ): Promise<string> {
     const qb = this.dataSource
       .getRepository('Listing')
@@ -175,37 +198,47 @@ export class ExportsService implements OnModuleInit, OnModuleDestroy {
       .leftJoinAndSelect('l.vendor', 'v')
       .orderBy('l.createdAt', 'DESC');
 
+    if (!ctx.isAdmin) qb.andWhere('l.vendorId = :requesterId', { requesterId: ctx.requesterId });
     if (filters.status) qb.andWhere('l.status = :status', { status: filters.status });
     if (filters.breed) qb.andWhere('l.breed = :breed', { breed: filters.breed });
 
     const listings = await qb.getMany();
-    const header = 'ID,Title,Breed,Region,Price,Status,Vendor,Created At';
+    const header = 'ID,Title,Breed,Region,Price,Status,Vendor,Vendor Email,Created At';
     const rows = listings.map((l: any) =>
-      [l.id, esc(l.title), esc(l.breed), esc(l.region), l.priceUsd, l.status, l.vendor?.username ?? '', l.createdAt].join(','),
+      [
+        l.id, esc(l.title), esc(l.breed), esc(l.region), l.priceUsd, l.status,
+        l.vendor?.username ?? '', ctx.maskEmail(l.vendor?.email), l.createdAt,
+      ].join(','),
     );
-    return [header, ...rows].join('\n');
+    return formatExportCsv(header, rows, ctx);
   }
 
   private async exportConversations(
     filters: Record<string, unknown>,
-    isAdmin: boolean,
+    ctx: ExportContext,
   ): Promise<string> {
     const qb = this.dataSource
       .getRepository('Conversation')
       .createQueryBuilder('c')
+      .leftJoinAndSelect('c.vendor', 'v')
       .orderBy('c.createdAt', 'DESC');
 
+    if (!ctx.isAdmin) qb.andWhere('c.vendorId = :requesterId', { requesterId: ctx.requesterId });
+
     const conversations = await qb.getMany();
-    const header = 'ID,Listing ID,Vendor ID,Archived,Disputed,Created At';
+    const header = 'ID,Listing ID,Vendor,Vendor Email,Archived,Disputed,Created At';
     const rows = conversations.map((c: any) =>
-      [c.id, c.listingId, c.vendorId, c.isArchived, c.isDisputed, c.createdAt].join(','),
+      [
+        c.id, c.listingId, (c as any).vendor?.username ?? c.vendorId,
+        ctx.maskEmail((c as any).vendor?.email), c.isArchived, c.isDisputed, c.createdAt,
+      ].join(','),
     );
-    return [header, ...rows].join('\n');
+    return formatExportCsv(header, rows, ctx);
   }
 
   private async exportSettlements(
     filters: Record<string, unknown>,
-    isAdmin: boolean,
+    ctx: ExportContext,
   ): Promise<string> {
     const qb = this.dataSource
       .getRepository('Settlement')
@@ -213,23 +246,27 @@ export class ExportsService implements OnModuleInit, OnModuleDestroy {
       .leftJoinAndSelect('s.vendor', 'v')
       .orderBy('s.createdAt', 'DESC');
 
+    if (ctx.requesterRole === 'vendor') {
+      qb.andWhere('s.vendorId = :requesterId', { requesterId: ctx.requesterId });
+    }
     if (filters.month) qb.andWhere('s.month = :month', { month: filters.month });
     if (filters.status) qb.andWhere('s.status = :status', { status: filters.status });
 
     const settlements = await qb.getMany();
-    const header = 'ID,Vendor,Month,Total Charges,Tax Amount,Status,Created At';
-    const rows = settlements.map((s: any) => {
-      const vendorEmail = s.vendor?.email
-        ? isAdmin
-          ? this.encryption.decrypt(s.vendor.email)
-          : '***masked***'
-        : 'N/A';
-      return [s.id, s.vendor?.username ?? '', s.month, s.totalCharges, s.taxAmount, s.status, s.createdAt].join(',');
-    });
-    return [header, ...rows].join('\n');
+    const header = 'ID,Vendor,Vendor Email,Month,Total Charges,Tax Amount,Status,Created At';
+    const rows = settlements.map((s: any) =>
+      [
+        s.id, s.vendor?.username ?? '', ctx.maskEmail(s.vendor?.email),
+        s.month, s.totalCharges, s.taxAmount, s.status, s.createdAt,
+      ].join(','),
+    );
+    return formatExportCsv(header, rows, ctx);
   }
 
-  private async exportAudit(filters: Record<string, unknown>): Promise<string> {
+  private async exportAudit(
+    filters: Record<string, unknown>,
+    ctx: ExportContext,
+  ): Promise<string> {
     const qb = this.dataSource
       .getRepository('AuditLog')
       .createQueryBuilder('a')
@@ -243,22 +280,81 @@ export class ExportsService implements OnModuleInit, OnModuleDestroy {
     const rows = logs.map((l: any) =>
       [l.id, l.action, l.actorId, l.entityType, l.entityId ?? '', l.hash, l.createdAt].join(','),
     );
-    return [header, ...rows].join('\n');
+    return formatExportCsv(header, rows, ctx);
   }
 
   private async expireOldJobs(): Promise<void> {
     const now = new Date();
-    await this.exportRepo
+    const toExpire = await this.exportRepo.find({
+      where: { status: ExportJobStatus.DONE, expiresAt: LessThan(now) },
+    });
+    for (const job of toExpire) {
+      await this.expireJob(job).catch((err: unknown) => {
+        logger.error(`Failed to expire job ${job.id}: ${err}`, { context: 'ExportExpiry' });
+      });
+    }
+  }
+
+  /**
+   * Expire a single export job atomically:
+   *  1. Delete the file from disk (best-effort — ENOENT is treated as already-gone).
+   *  2. UPDATE WHERE status='done' to EXPIRED + filePath=null (compare-and-set).
+   *     If affected=0, another worker already expired it — safe to ignore.
+   *
+   * Exposed as public so it can be driven directly from tests and from
+   * downloadFile's inline expiry path.
+   */
+  async expireJob(job: ExportJob): Promise<void> {
+    if (job.filePath) {
+      const result = safeDeleteFile(job.filePath);
+      if (result.deleted) {
+        logger.info(`Deleted export file: ${job.filePath}`, { context: 'ExportExpiry' });
+      } else {
+        // file_not_found is expected when a previous expiry run already removed it
+        logger.warn(
+          `Export file not deleted (${result.error}): ${job.filePath}`,
+          { context: 'ExportExpiry' },
+        );
+      }
+    }
+
+    // Atomic compare-and-set: only commits if this worker wins the race
+    const updateResult = await this.exportRepo
       .createQueryBuilder()
       .update()
-      .set({ status: ExportJobStatus.EXPIRED })
-      .where('status = :done', { done: ExportJobStatus.DONE })
-      .andWhere('"expiresAt" < :now', { now })
+      .set({ status: ExportJobStatus.EXPIRED, filePath: () => 'NULL' })
+      .where('id = :id', { id: job.id })
+      .andWhere('status = :done', { done: ExportJobStatus.DONE })
       .execute();
+
+    if (!updateResult.affected || updateResult.affected === 0) {
+      logger.info(
+        `Export job ${job.id} already expired by concurrent worker — skipping`,
+        { context: 'ExportExpiry' },
+      );
+    }
   }
+}
+
+/** Shared context threaded through every export function. */
+interface ExportContext {
+  requesterId: string;
+  requesterRole: string;
+  isAdmin: boolean;
+  /** Decrypt if admin, mask to '***' otherwise, 'N/A' if null. */
+  maskEmail: (encrypted: string | null | undefined) => string;
 }
 
 function esc(val: string): string {
   if (!val) return '';
   return `"${val.replace(/"/g, '""')}"`;
+}
+
+/**
+ * Central formatter — every export flows through here.
+ * Guarantees a watermark row is always present.
+ */
+function formatExportCsv(header: string, rows: string[], ctx: ExportContext): string {
+  const wm = `# Generated for: ${ctx.requesterRole} / ${ctx.requesterId} at ${new Date().toISOString()}`;
+  return [wm, header, ...rows].join('\n');
 }

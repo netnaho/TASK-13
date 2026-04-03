@@ -24,6 +24,7 @@ import { CreateCannedResponseDto } from './dto/canned-response.dto';
 import { JwtAuthGuard, JwtPayload } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { extractRiskContext } from '../common/risk/request-risk-context';
 
 @Controller('conversations')
 @UseGuards(JwtAuthGuard)
@@ -44,7 +45,7 @@ export class ConversationsController {
   @Post()
   create(@Body() dto: CreateConversationDto, @Req() req: Request) {
     const user = (req as Request & { user: JwtPayload }).user;
-    return this.conversationsService.create(user.sub, dto.listingId);
+    return this.conversationsService.create(user.sub, dto.listingId, extractRiskContext(req));
   }
 
   @Get(':id')

@@ -11,6 +11,6 @@ export class UsersController {
   @Get('me')
   getMe(@Req() req: Request) {
     const user = (req as Request & { user: JwtPayload }).user;
-    return this.usersService.findById(user.sub);
+    return this.usersService.findById(user.sub, user.role);
   }
 }

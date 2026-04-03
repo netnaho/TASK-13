@@ -40,8 +40,11 @@ Error responses:
 - **Response Data:** `{ "token": "eyJ...", "user": { "id": 1, "role": "admin" } }`
 
 ### `POST /auth/register`
-- **Description:** Register a new user account (shopper or vendor).
-- **Body:** `{ "username": "shopper2", "password": "pwd", "role": "shopper" }`
+- **Description:** Register a new user account. Role defaults to `shopper`; use the admin panel to promote to vendor.
+- **Body:** `{ "username": "shopper2", "password": "password123", "email": "shopper2@example.com" }`
+  - `username`: 3–30 characters
+  - `password`: minimum 8 characters
+  - `email`: valid email address (required)
 - **Access:** Public
 
 ---
@@ -101,7 +104,7 @@ Error responses:
 
 ### `POST /conversations/:id/voice`
 - **Description:** Upload a local audio file as a voice note.
-- **Requires:** `multipart/form-data` with `file`
+- **Requires:** `multipart/form-data` with field name **`audio`** (file, `audio/*` MIME types only, max 10 MB)
 
 ### `POST /conversations/:id/archive`
 - **Description:** Archive the conversation context.
@@ -204,3 +207,55 @@ Error responses:
 ### `GET /exports/jobs`
 - **Description:** View status of background export queues (max 2 concurrent limits).
 - **Access:** Admin
+
+---
+
+## Contract Alignment Notes
+
+This section records corrections made during the 2026-04-03 alignment pass. All fixes
+move the documentation to match the implemented code (code is the source of truth).
+
+### 1. PostgreSQL host port (README)
+
+| Location | Was | Now |
+|---|---|---|
+| `README.md` Services table | `localhost:5432` | `localhost:5433` |
+
+**Reason:** `docker-compose.yml` maps host port **5433** → container port 5432
+(`ports: '5433:5432'`). The backend connects on 5432 _within the Docker network_
+(correct), but a developer connecting from the host must use 5433.
+
+### 2. DB password code default (`app.module.ts`)
+
+| Location | Was | Now |
+|---|---|---|
+| `backend/src/app.module.ts` `DB_PASSWORD` fallback | `petmarket_pass` | `petmarket_secret` |
+
+**Reason:** `docker-compose.yml` and `README.md` both set `petmarket_secret`. The
+mismatched code fallback caused local-dev runs outside Docker to fail with an auth
+error. `docker-compose.yml` is the authoritative default; `README.md` already
+reflected it correctly.
+
+### 3. Voice upload form field name
+
+| Location | Was | Now |
+|---|---|---|
+| `docs/api-spec.md` `POST /conversations/:id/voice` | `file` | `audio` |
+
+**Reason:** The NestJS controller uses `FileInterceptor('audio', ...)` and the
+frontend client appends the file as `formData.append('audio', file)`. The field name
+`audio` is enforced server-side — sending `file` returns a 400. The spec was wrong.
+
+### 4. `POST /auth/register` request body
+
+| Field | Spec (old) | DTO / implementation |
+|---|---|---|
+| `username` | ✓ present | ✓ required, 3–30 chars |
+| `password` | `"pwd"` (3 chars) | required, **min 8 chars** |
+| `email` | ✗ absent | **required**, valid email |
+| `role` | `"shopper"` | **not accepted** — role is assigned server-side |
+
+**Reason:** `RegisterDto` validates `username` (3–30), `password` (min 8), and
+`email` (valid format). The `role` field is not in the DTO; passing it causes a 400
+from the global `ValidationPipe(forbidNonWhitelisted: true)`. The spec example was
+copy-paste inaccurate and would fail validation if used literally.

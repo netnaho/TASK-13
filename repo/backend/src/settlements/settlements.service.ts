@@ -13,6 +13,24 @@ import { AuditService } from '../audit/audit.service';
 import { FreightService } from './freight.service';
 import { SettlementFiltersDto } from './dto/settlement.dto';
 import { EncryptionService } from '../common/encryption/encryption.service';
+import { validateStep1Approval, validateStep2Approval } from './settlement-sod.policy';
+import { logger } from '../common/logger/winston.logger';
+
+/** PG unique-violation error code */
+const PG_UNIQUE_VIOLATION = '23505';
+const SCHEDULER_CONTEXT = 'SettlementScheduler';
+
+export interface GenerationRunResult {
+  period: string;
+  triggeredBy: 'manual' | 'scheduler';
+  generatedCount: number;
+  /** Vendors skipped because a statement already existed for the period. */
+  skippedCount: number;
+  /** Vendors where generation failed with an unexpected error. */
+  errorCount: number;
+  durationMs: number;
+  settlements: Settlement[];
+}
 
 @Injectable()
 export class SettlementsService {
@@ -74,69 +92,138 @@ export class SettlementsService {
     };
   }
 
-  async generateMonthly(month: string, actorId: string): Promise<Settlement[]> {
+  /**
+   * Generates monthly settlement statements for all active vendors.
+   *
+   * Safe under retries and concurrent calls:
+   *   1. Soft check: `findOne` skips vendors that already have a record
+   *      (fast path, avoids unnecessary work).
+   *   2. Hard guard: the DB unique index on `(vendorId, month)` catches any
+   *      race window between the check and the insert.  A PG-23505 error is
+   *      treated as "already generated" and counted as `skippedCount`.
+   *
+   * Vendor-level errors are isolated — a failure for one vendor increments
+   * `errorCount` but does not abort the rest.
+   */
+  async generateMonthly(
+    month: string,
+    actorId: string,
+    triggeredBy: 'manual' | 'scheduler' = 'manual',
+  ): Promise<GenerationRunResult> {
+    const startMs = Date.now();
+    logger.info(`Settlement generation started`, {
+      context: SCHEDULER_CONTEXT,
+      period: month,
+      triggeredBy,
+    });
+
     const vendors = await this.userRepo.find({ where: { role: 'vendor' as any, isActive: true } });
-    const results: Settlement[] = [];
+    const settlements: Settlement[] = [];
+    let skippedCount = 0;
+    let errorCount = 0;
 
     for (const vendor of vendors) {
+      // Soft idempotency check — avoids hitting the DB constraint on every retry
       const existing = await this.settlementRepo.findOne({
         where: { vendorId: vendor.id, month },
       });
-      if (existing) continue;
-
-      const listings = await this.listingRepo
-        .createQueryBuilder('l')
-        .where('l.vendorId = :vendorId', { vendorId: vendor.id })
-        .andWhere("to_char(l.\"createdAt\", 'YYYY-MM') = :month", { month })
-        .getMany();
-
-      let totalCharges = 0;
-      for (const listing of listings) {
-        const freight = this.freightService.calculate({
-          distanceMiles: 150,
-          weightLbs: Number(listing.age) * 2 + 5,
-          dimWeightLbs: 10,
-          isOversized: false,
-          isWeekend: false,
-        });
-        totalCharges += freight.total;
+      if (existing) {
+        skippedCount++;
+        continue;
       }
 
-      const taxAmount = round(totalCharges * 0.085);
-
-      const settlement = this.settlementRepo.create({
-        vendorId: vendor.id,
-        month,
-        totalCharges,
-        taxAmount,
-        status: SettlementStatus.PENDING,
-        data: { listingCount: listings.length },
-      });
-      const saved = await this.settlementRepo.save(settlement);
-      results.push(saved);
-
-      await this.auditService.log({
-        action: 'settlement.generate',
-        actorId,
-        entityType: 'settlement',
-        entityId: saved.id,
-        after: { vendorId: vendor.id, month, totalCharges, taxAmount } as unknown as Record<string, unknown>,
-      });
+      try {
+        const saved = await this.generateForVendor(vendor, month, actorId);
+        settlements.push(saved);
+      } catch (err: any) {
+        if (err?.code === PG_UNIQUE_VIOLATION) {
+          // Concurrent worker saved first — treat as already generated
+          skippedCount++;
+        } else {
+          errorCount++;
+          logger.error(`Settlement generation failed for vendor ${vendor.id}`, {
+            context: SCHEDULER_CONTEXT,
+            period: month,
+            vendorId: vendor.id,
+            error: err?.message,
+          });
+        }
+      }
     }
 
-    return results;
+    const durationMs = Date.now() - startMs;
+    logger.info(`Settlement generation completed`, {
+      context: SCHEDULER_CONTEXT,
+      period: month,
+      triggeredBy,
+      generatedCount: settlements.length,
+      skippedCount,
+      errorCount,
+      durationMs,
+    });
+
+    return {
+      period: month,
+      triggeredBy,
+      generatedCount: settlements.length,
+      skippedCount,
+      errorCount,
+      durationMs,
+      settlements,
+    };
+  }
+
+  private async generateForVendor(
+    vendor: User,
+    month: string,
+    actorId: string,
+  ): Promise<Settlement> {
+    const listings = await this.listingRepo
+      .createQueryBuilder('l')
+      .where('l.vendorId = :vendorId', { vendorId: vendor.id })
+      .andWhere("to_char(l.\"createdAt\", 'YYYY-MM') = :month", { month })
+      .getMany();
+
+    let totalCharges = 0;
+    for (const listing of listings) {
+      const freight = this.freightService.calculate({
+        distanceMiles: 150,
+        weightLbs: Number(listing.age) * 2 + 5,
+        dimWeightLbs: 10,
+        isOversized: false,
+        isWeekend: false,
+      });
+      totalCharges += freight.total;
+    }
+
+    const taxAmount = round(totalCharges * 0.085);
+
+    const settlement = this.settlementRepo.create({
+      vendorId: vendor.id,
+      month,
+      totalCharges,
+      taxAmount,
+      status: SettlementStatus.PENDING,
+      data: { listingCount: listings.length },
+    });
+    const saved = await this.settlementRepo.save(settlement);
+
+    await this.auditService.log({
+      action: 'settlement.generate',
+      actorId,
+      entityType: 'settlement',
+      entityId: saved.id,
+      after: { vendorId: vendor.id, month, totalCharges, taxAmount } as unknown as Record<string, unknown>,
+    });
+
+    return saved;
   }
 
   async approveStep1(id: string, reviewerId: string, role: string): Promise<Settlement> {
-    if (role !== 'ops_reviewer' && role !== 'admin') {
-      throw new ForbiddenException('Only ops_reviewer can perform step 1 approval');
-    }
-
     const settlement = await this.settlementRepo.findOne({ where: { id } });
     if (!settlement) throw new NotFoundException('Settlement not found');
-    if (settlement.status !== SettlementStatus.PENDING) {
-      throw new BadRequestException('Settlement must be in pending status for step 1 approval');
-    }
+
+    validateStep1Approval(settlement, role);
 
     const before = { ...settlement } as unknown as Record<string, unknown>;
     settlement.status = SettlementStatus.REVIEWER_APPROVED;
@@ -150,22 +237,17 @@ export class SettlementsService {
       entityType: 'settlement',
       entityId: id,
       before,
-      after: saved as unknown as Record<string, unknown>,
+      after: { ...saved, approvedStep1By: reviewerId, approvedStep1At: saved.reviewerApprovedAt } as unknown as Record<string, unknown>,
     });
 
     return saved;
   }
 
   async approveStep2(id: string, financeId: string, role: string): Promise<Settlement> {
-    if (role !== 'finance_admin' && role !== 'admin') {
-      throw new ForbiddenException('Only finance_admin can perform step 2 approval');
-    }
-
     const settlement = await this.settlementRepo.findOne({ where: { id } });
     if (!settlement) throw new NotFoundException('Settlement not found');
-    if (settlement.status !== SettlementStatus.REVIEWER_APPROVED) {
-      throw new BadRequestException('Step 1 approval must be completed before step 2');
-    }
+
+    validateStep2Approval(settlement, financeId, role);
 
     const before = { ...settlement } as unknown as Record<string, unknown>;
     settlement.status = SettlementStatus.FINANCE_APPROVED;
@@ -179,7 +261,7 @@ export class SettlementsService {
       entityType: 'settlement',
       entityId: id,
       before,
-      after: saved as unknown as Record<string, unknown>,
+      after: { ...saved, approvedStep2By: financeId, approvedStep2At: saved.financeApprovedAt } as unknown as Record<string, unknown>,
     });
 
     return saved;
@@ -223,6 +305,11 @@ export class SettlementsService {
     if (!settlement) throw new NotFoundException('Settlement not found');
     if (requesterRole === 'vendor' && settlement.vendorId !== requesterId) {
       throw new ForbiddenException('Access denied to this settlement');
+    }
+    if (settlement.status !== SettlementStatus.FINANCE_APPROVED) {
+      throw new BadRequestException(
+        `Only fully approved settlements can be exported (current status: ${settlement.status})`,
+      );
     }
 
     const isAdmin = requesterRole === 'admin';

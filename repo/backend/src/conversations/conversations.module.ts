@@ -12,6 +12,7 @@ import { Listing } from '../database/entities/listing.entity';
 import { RateLimitEvent } from '../database/entities/rate-limit-event.entity';
 import { CannedResponse } from '../database/entities/canned-response.entity';
 import { AuditModule } from '../audit/audit.module';
+import { JWT_SECRET } from '../common/config/secrets';
 import { RiskModule } from '../risk/risk.module';
 
 @Module({
@@ -24,7 +25,7 @@ import { RiskModule } from '../risk/risk.module';
       CannedResponse,
     ]),
     JwtModule.register({
-      secret: process.env.JWT_SECRET ?? 'local_dev_jwt_secret_change_in_prod',
+      secret: JWT_SECRET,
     }),
     AuditModule,
     RiskModule,

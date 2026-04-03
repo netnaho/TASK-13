@@ -11,8 +11,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Request } from 'express';
-import { IsOptional, IsString, IsDateString, IsIn } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsOptional, IsString, IsDateString, IsBoolean } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 import { AuditService } from './audit.service';
 import { JwtAuthGuard, JwtPayload } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -60,6 +60,13 @@ class AdminAuditFiltersDto {
   @IsOptional()
   @Type(() => Number)
   limit?: number;
+}
+
+class RetentionQueryDto {
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  dryRun?: boolean;
 }
 
 class ExportAuditDto {
@@ -110,6 +117,11 @@ export class AdminAuditController {
     } catch {
       throw new NotFoundException('Audit entry not found');
     }
+  }
+
+  @Post('retention')
+  runRetention(@Query() query: RetentionQueryDto) {
+    return this.auditService.runRetentionJob(query.dryRun ?? false);
   }
 
   @Post('export')

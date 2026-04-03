@@ -19,8 +19,10 @@ import { SearchListingsDto, SuggestDto } from './dto/search-listings.dto';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { JwtAuthGuard, JwtPayload } from '../common/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { extractRiskContext } from '../common/risk/request-risk-context';
 
 @Controller('listings')
 export class ListingsController {
@@ -37,8 +39,10 @@ export class ListingsController {
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.listingsService.findOne(id);
+  @UseGuards(OptionalJwtAuthGuard)
+  findOne(@Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
+    const user = (req as Request & { user?: JwtPayload }).user;
+    return this.listingsService.findOne(id, user?.role, user?.sub);
   }
 
   @Post()
@@ -46,7 +50,7 @@ export class ListingsController {
   @Roles('vendor', 'admin')
   create(@Body() dto: CreateListingDto, @Req() req: Request) {
     const user = (req as Request & { user: JwtPayload }).user;
-    return this.listingsService.create(user.sub, dto);
+    return this.listingsService.create(user.sub, dto, extractRiskContext(req));
   }
 
   @Put(':id')

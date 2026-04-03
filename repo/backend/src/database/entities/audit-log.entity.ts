@@ -42,4 +42,10 @@ export class AuditLog {
 
   @CreateDateColumn()
   createdAt: Date;
+
+  @Column({ nullable: true, type: 'timestamp', default: null })
+  archivedAt: Date | null;
+
+  @Column({ nullable: true, type: 'text', default: null })
+  archiveReason: string | null;
 }

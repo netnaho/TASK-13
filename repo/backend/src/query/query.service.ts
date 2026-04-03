@@ -9,6 +9,7 @@ import { Repository, DataSource, SelectQueryBuilder } from 'typeorm';
 import { SavedQuery } from '../database/entities/saved-query.entity';
 import { PowerQueryDto, QueryFilterItem } from './dto/query.dto';
 import { EncryptionService } from '../common/encryption/encryption.service';
+import { UserSanitizerService } from '../common/sanitization/user-sanitizer.service';
 
 const ENTITY_MAP: Record<string, string> = {
   listings: 'Listing',
@@ -31,6 +32,7 @@ export class QueryService {
     private readonly savedQueryRepo: Repository<SavedQuery>,
     private readonly dataSource: DataSource,
     private readonly encryption: EncryptionService,
+    private readonly userSanitizer: UserSanitizerService,
   ) {}
 
   async execute(
@@ -81,9 +83,8 @@ export class QueryService {
     const [items, total] = await qb.getManyAndCount();
 
     const masked = items.map((item: any) => {
-      if (dto.entity === 'users' && role !== 'admin') {
-        const { passwordHash, email, deviceFingerprint, ...safe } = item;
-        return safe;
+      if (dto.entity === 'users') {
+        return this.userSanitizer.sanitize(item, role);
       }
       return item;
     });

@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 
@@ -16,7 +17,15 @@ export enum SettlementStatus {
   REJECTED = 'rejected',
 }
 
+/**
+ * The (vendorId, month) pair must be unique — a vendor has exactly one
+ * settlement statement per billing period.  This constraint is the primary
+ * idempotency guard: a DB-level unique violation (PG code 23505) is caught
+ * in the generation service and treated as "already generated" rather than
+ * an error, making concurrent or retried runs safe.
+ */
 @Entity('settlements')
+@Index(['vendorId', 'month'], { unique: true })
 export class Settlement {
   @PrimaryGeneratedColumn('uuid')
   id: string;

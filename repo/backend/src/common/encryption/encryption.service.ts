@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import * as crypto from 'crypto';
+import { FIELD_ENCRYPTION_KEY } from '../config/secrets';
 
 const ALGORITHM = 'aes-256-cbc';
 const IV_LENGTH = 16;
@@ -10,8 +11,7 @@ export class EncryptionService {
   private readonly key: Buffer;
 
   constructor() {
-    const raw = process.env.FIELD_ENCRYPTION_KEY ?? 'local_dev_encryption_key_change_in_prod';
-    this.key = crypto.createHash('sha256').update(raw).digest();
+    this.key = crypto.createHash('sha256').update(FIELD_ENCRYPTION_KEY).digest();
   }
 
   encrypt(plaintext: string): string {

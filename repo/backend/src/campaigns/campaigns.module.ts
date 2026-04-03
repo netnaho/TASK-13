@@ -7,6 +7,7 @@ import {
   AdminSensitiveWordsController,
 } from './campaigns.controller';
 import { CampaignsService } from './campaigns.service';
+import { JWT_SECRET } from '../common/config/secrets';
 import { Campaign } from '../database/entities/campaign.entity';
 import { SensitiveWord } from '../database/entities/sensitive-word.entity';
 import { AuditModule } from '../audit/audit.module';
@@ -15,7 +16,7 @@ import { AuditModule } from '../audit/audit.module';
   imports: [
     TypeOrmModule.forFeature([Campaign, SensitiveWord]),
     JwtModule.register({
-      secret: process.env.JWT_SECRET ?? 'local_dev_jwt_secret_change_in_prod',
+      secret: JWT_SECRET,
     }),
     AuditModule,
   ],

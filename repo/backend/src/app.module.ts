@@ -37,7 +37,7 @@ import { QueryModule } from './query/query.module';
         host: cfg.get<string>('DB_HOST', 'localhost'),
         port: cfg.get<number>('DB_PORT', 5432),
         username: cfg.get<string>('DB_USER', 'petmarket'),
-        password: cfg.get<string>('DB_PASSWORD', 'petmarket_pass'),
+        password: cfg.get<string>('DB_PASSWORD', 'petmarket_secret'),
         database: cfg.get<string>('DB_NAME', 'petmarket'),
         entities: [
           User,

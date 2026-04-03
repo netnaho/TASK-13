@@ -23,21 +23,21 @@ export class ExportsController {
   constructor(private readonly exportsService: ExportsService) {}
 
   @Get('jobs')
-  @Roles('admin')
+  @Roles('admin', 'vendor', 'ops_reviewer', 'finance_admin')
   findAll(@Req() req: Request) {
     const user = (req as Request & { user: JwtPayload }).user;
     return this.exportsService.findAll(user.sub, user.role);
   }
 
   @Post('jobs')
-  @Roles('admin')
+  @Roles('admin', 'vendor', 'ops_reviewer', 'finance_admin')
   createJob(@Body() dto: CreateExportJobDto, @Req() req: Request) {
     const user = (req as Request & { user: JwtPayload }).user;
-    return this.exportsService.createJob(user.sub, dto);
+    return this.exportsService.createJob(user.sub, user.role, dto);
   }
 
   @Get('jobs/:id')
-  @Roles('admin')
+  @Roles('admin', 'vendor', 'ops_reviewer', 'finance_admin')
   getStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: Request,
@@ -47,7 +47,7 @@ export class ExportsController {
   }
 
   @Get('jobs/:id/download')
-  @Roles('admin')
+  @Roles('admin', 'vendor', 'ops_reviewer', 'finance_admin')
   async download(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: Request,

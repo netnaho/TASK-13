@@ -14,10 +14,17 @@ export default function Conversations() {
   const [isInternal, setIsInternal] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [showArchived, setShowArchived] = useState(false);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
 
-  const { data: convs, isLoading } = useQuery({
-    queryKey: ['conversations', keyword, showArchived],
-    queryFn: () => conversationsApi.getAll({ keyword: keyword || undefined, archived: showArchived || undefined }),
+  const { data: convs, isLoading, isError, refetch } = useQuery({
+    queryKey: ['conversations', keyword, showArchived, startDate, endDate],
+    queryFn: () => conversationsApi.getAll({
+      keyword: keyword || undefined,
+      archived: showArchived || undefined,
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+    }),
   });
 
   const { data: activeConv, isLoading: msgsLoading } = useQuery({
@@ -64,7 +71,10 @@ export default function Conversations() {
     onError: (err) => toast(getErrorMessage(err), 'error'),
   });
 
-  const messages = activeConv?.messages ?? [];
+  const canSeeInternalNotes = role === 'vendor' || role === 'admin';
+  const messages = (activeConv?.messages ?? []).filter(
+    (m) => !m.isInternal || canSeeInternalNotes,
+  );
 
   return (
     <div className="h-[calc(100vh-8rem)]">
@@ -79,6 +89,24 @@ export default function Conversations() {
               placeholder="Search conversations..."
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
             />
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500">From</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500">To</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+              />
+            </div>
             <label className="flex items-center gap-2 text-xs text-gray-500">
               <input
                 type="checkbox"
@@ -92,6 +120,11 @@ export default function Conversations() {
           <div className="flex-1 overflow-y-auto">
             {isLoading ? (
               <div className="p-3 space-y-2">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-14 skeleton" />)}</div>
+            ) : isError ? (
+              <div className="p-4 text-center">
+                <p className="text-sm text-red-500 mb-2">Failed to load conversations</p>
+                <button onClick={() => refetch()} className="text-xs text-[#1a56db] underline">Retry</button>
+              </div>
             ) : convs?.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-8">No conversations</p>
             ) : (

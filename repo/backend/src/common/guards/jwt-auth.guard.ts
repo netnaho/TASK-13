@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
+import { JWT_SECRET } from '../config/secrets';
 
 export interface JwtPayload {
   sub: string;
@@ -29,7 +30,7 @@ export class JwtAuthGuard implements CanActivate {
 
     try {
       const payload = this.jwtService.verify<JwtPayload>(token, {
-        secret: process.env.JWT_SECRET ?? 'local_dev_jwt_secret_change_in_prod',
+        secret: JWT_SECRET,
       });
       (request as Request & { user: JwtPayload }).user = payload;
       return true;

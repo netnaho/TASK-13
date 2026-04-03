@@ -18,9 +18,20 @@ import { RiskService } from '../risk/risk.service';
 import { ConversationFiltersDto } from './dto/conversation-filters.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { CreateCannedResponseDto } from './dto/canned-response.dto';
+import { RequestRiskContext } from '../common/risk/request-risk-context';
 
 const CONV_RATE_LIMIT_MAX = 10;
 const CONV_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const SEARCH_DEFAULT_LIMIT = 20;
+const SEARCH_MAX_LIMIT = 100;
+
+export interface ConversationSearchResult {
+  items: Conversation[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
 
 @Injectable()
 export class ConversationsService {
@@ -43,7 +54,10 @@ export class ConversationsService {
     userId: string,
     role: string,
     filters: ConversationFiltersDto,
-  ): Promise<Conversation[]> {
+  ): Promise<ConversationSearchResult> {
+    const page = Math.max(1, filters.page ?? 1);
+    const limit = Math.min(SEARCH_MAX_LIMIT, Math.max(1, filters.limit ?? SEARCH_DEFAULT_LIMIT));
+
     const qb = this.convRepo
       .createQueryBuilder('c')
       .leftJoinAndSelect('c.listing', 'listing');
@@ -61,8 +75,22 @@ export class ConversationsService {
       qb.andWhere('c.listingId = :listingId', { listingId: filters.listingId });
     }
     if (filters.keyword) {
-      qb.andWhere('listing.title ILIKE :kw', { kw: `%${filters.keyword}%` });
+      // Primary: match any message content in the conversation.
+      // Secondary: match the listing title.
+      // EXISTS avoids row duplication and is evaluated per-conversation,
+      // keeping join cardinality on the conversations table unchanged.
+      const msgSubQuery = this.msgRepo
+        .createQueryBuilder('m')
+        .select('1')
+        .where('m.conversationId = c.id')
+        .andWhere('m.content ILIKE :kw');
+
+      qb.andWhere(
+        `(listing.title ILIKE :kw OR EXISTS (${msgSubQuery.getQuery()}))`,
+        { kw: `%${filters.keyword}%` },
+      );
     }
+    // Date-range filters target conversation.createdAt — see DTO for semantics.
     if (filters.startDate) {
       qb.andWhere('c.createdAt >= :startDate', { startDate: new Date(filters.startDate) });
     }
@@ -70,10 +98,26 @@ export class ConversationsService {
       qb.andWhere('c.createdAt <= :endDate', { endDate: new Date(filters.endDate) });
     }
 
-    return qb.orderBy('c.createdAt', 'DESC').getMany();
+    // Secondary sort by id ensures deterministic ordering when createdAt ties.
+    qb.orderBy('c.createdAt', 'DESC').addOrderBy('c.id', 'ASC');
+    qb.skip((page - 1) * limit).take(limit);
+
+    const [items, total] = await qb.getManyAndCount();
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
-  async create(shopperId: string, listingId: string): Promise<Conversation> {
+  async create(
+    shopperId: string,
+    listingId: string,
+    riskCtx: RequestRiskContext = { ip: undefined, deviceFingerprint: undefined },
+  ): Promise<Conversation> {
     await this.enforceConversationRateLimit(shopperId);
 
     const listing = await this.listingRepo.findOne({ where: { id: listingId } });
@@ -98,7 +142,11 @@ export class ConversationsService {
       this.rateLimitRepo.create({ userId: shopperId, action: 'create_conversation' }),
     );
 
-    await this.riskService.assessConversationCreation(shopperId);
+    await this.riskService.assessConversationCreation(
+      shopperId,
+      riskCtx.deviceFingerprint,
+      riskCtx.ip,
+    );
 
     await this.auditService.log({
       action: 'conversation.create',

@@ -50,7 +50,7 @@ export class SettlementsController {
   @Roles('admin')
   generateMonthly(@Body() dto: GenerateMonthlyDto, @Req() req: Request) {
     const user = (req as Request & { user: JwtPayload }).user;
-    return this.settlementsService.generateMonthly(dto.month, user.sub);
+    return this.settlementsService.generateMonthly(dto.month, user.sub, 'manual');
   }
 
   @Post('freight/calculate')
@@ -59,28 +59,15 @@ export class SettlementsController {
     return this.freightService.calculate(dto as FreightParams);
   }
 
-  @Post(':id/approve')
-  @Roles('ops_reviewer', 'finance_admin', 'admin')
-  approve(@Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
-    const user = (req as Request & { user: JwtPayload }).user;
-    if (user.role === 'ops_reviewer') {
-      return this.settlementsService.approveStep1(id, user.sub, user.role);
-    }
-    if (user.role === 'finance_admin') {
-      return this.settlementsService.approveStep2(id, user.sub, user.role);
-    }
-    return this.settlementsService.approveStep1(id, user.sub, user.role);
-  }
-
   @Post(':id/approve-step1')
-  @Roles('ops_reviewer', 'admin')
+  @Roles('ops_reviewer')
   approveStep1(@Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
     const user = (req as Request & { user: JwtPayload }).user;
     return this.settlementsService.approveStep1(id, user.sub, user.role);
   }
 
   @Post(':id/approve-step2')
-  @Roles('finance_admin', 'admin')
+  @Roles('finance_admin')
   approveStep2(@Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
     const user = (req as Request & { user: JwtPayload }).user;
     return this.settlementsService.approveStep2(id, user.sub, user.role);

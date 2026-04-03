@@ -15,6 +15,8 @@ import { RiskService, RiskFlag } from '../risk/risk.service';
 import { SearchListingsDto } from './dto/search-listings.dto';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
+import { canViewListing } from './listing-visibility.policy';
+import { RequestRiskContext } from '../common/risk/request-risk-context';
 
 const TYPO_MAP: Record<string, string> = {
   retreiver: 'retriever',
@@ -174,12 +176,16 @@ export class ListingsService {
     return results;
   }
 
-  async findOne(id: string): Promise<Listing> {
+  async findOne(
+    id: string,
+    requesterRole?: string,
+    requesterId?: string,
+  ): Promise<Listing> {
     const listing = await this.listingRepo.findOne({
       where: { id },
       relations: ['vendor'],
     });
-    if (!listing) {
+    if (!listing || !canViewListing(listing, requesterRole, requesterId)) {
       throw new NotFoundException('Listing not found');
     }
     return listing;
@@ -188,17 +194,28 @@ export class ListingsService {
   async create(
     vendorId: string,
     dto: CreateListingDto,
+    riskCtx: RequestRiskContext = { ip: undefined, deviceFingerprint: undefined },
   ): Promise<{ listing: Listing; flagged: boolean; reason?: string; duplicateWarning?: string }> {
     await this.enforceRateLimit(vendorId);
 
     const duplicateWarning = await this.detectDuplicate(vendorId, dto.title);
     const { flagged } = await this.checkSensitiveWords(dto.title, dto.description);
 
+    // Risk assessment runs BEFORE the save so flags can influence listing status
+    const riskFlags = await this.riskService.assessListingCreation(
+      vendorId,
+      dto.breed,
+      riskCtx.deviceFingerprint,
+      riskCtx.ip,
+    );
+
+    const shouldReview = flagged || riskFlags.length > 0;
+
     const listing = this.listingRepo.create({
       ...dto,
       vendorId,
       photos: dto.photos ?? [],
-      status: flagged ? ListingStatus.PENDING_REVIEW : ListingStatus.ACTIVE,
+      status: shouldReview ? ListingStatus.PENDING_REVIEW : ListingStatus.ACTIVE,
       sensitiveWordFlagged: flagged,
     });
     const saved = await this.listingRepo.save(listing);
@@ -215,13 +232,15 @@ export class ListingsService {
       after: { id: saved.id, title: saved.title, status: saved.status } as unknown as Record<string, unknown>,
     });
 
-    const riskFlags = await this.riskService.assessListingCreation(vendorId, dto.breed);
-
     const result: { listing: Listing; flagged: boolean; reason?: string; duplicateWarning?: string; riskFlags?: RiskFlag[] } = {
       listing: saved,
-      flagged,
+      flagged: shouldReview,
     };
-    if (flagged) result.reason = 'Review required: prohibited terms detected';
+    if (shouldReview) {
+      result.reason = flagged
+        ? 'Review required: prohibited terms detected'
+        : 'Review required: risk signals detected';
+    }
     if (duplicateWarning) result.duplicateWarning = duplicateWarning;
     if (riskFlags.length > 0) result.riskFlags = riskFlags;
     return result;

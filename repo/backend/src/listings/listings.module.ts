@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { ListingsController } from './listings.controller';
 import { ListingsService } from './listings.service';
+import { JWT_SECRET } from '../common/config/secrets';
 import { Listing } from '../database/entities/listing.entity';
 import { SensitiveWord } from '../database/entities/sensitive-word.entity';
 import { RateLimitEvent } from '../database/entities/rate-limit-event.entity';
@@ -13,7 +14,7 @@ import { RiskModule } from '../risk/risk.module';
   imports: [
     TypeOrmModule.forFeature([Listing, SensitiveWord, RateLimitEvent]),
     JwtModule.register({
-      secret: process.env.JWT_SECRET ?? 'local_dev_jwt_secret_change_in_prod',
+      secret: JWT_SECRET,
     }),
     AuditModule,
     RiskModule,
