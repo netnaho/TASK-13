@@ -15,7 +15,8 @@
       "../backend/src/*": ["../backend/src/*"],
       "@nestjs/common": ["./mocks/nestjs.ts"],
       "@nestjs/*": ["./mocks/nestjs.ts"],
-      "typeorm": ["./mocks/typeorm.ts"]
+      "typeorm": ["./mocks/typeorm.ts"],
+      "winston": ["./mocks/winston.ts"]
     }
   },
   "include": ["./**/*.ts"]
