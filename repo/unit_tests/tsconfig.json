@@ -18,7 +18,8 @@
       "typeorm": ["./mocks/typeorm.ts"],
       "winston": ["./mocks/winston.ts"],
       "class-validator": ["./mocks/class-validator.ts"],
-      "class-transformer": ["./mocks/class-validator.ts"]
+      "class-transformer": ["./mocks/class-validator.ts"],
+      "bcrypt": ["./mocks/bcrypt.ts"]
     }
   },
   "include": ["./**/*.ts"]

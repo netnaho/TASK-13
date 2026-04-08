@@ -28,7 +28,8 @@
       "^typeorm$": "<rootDir>/mocks/typeorm.ts",
       "^winston$": "<rootDir>/mocks/winston.ts",
       "^class-validator$": "<rootDir>/mocks/class-validator.ts",
-      "^class-transformer$": "<rootDir>/mocks/class-validator.ts"
+      "^class-transformer$": "<rootDir>/mocks/class-validator.ts",
+      "^bcrypt$": "<rootDir>/mocks/bcrypt.ts"
     }
   }
 }
