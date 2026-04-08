@@ -9,7 +9,7 @@ npm install --silent 2>/dev/null
 
 echo "Running Jest unit tests..."
 echo ""
-npx jest --verbose --forceExit 2>&1
+npx jest --verbose --forceExit --maxWorkers=2 2>&1
 
 echo ""
 echo "Unit tests complete."

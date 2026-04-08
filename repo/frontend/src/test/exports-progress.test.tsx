@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { renderWithProviders } from './test-utils';
 import { server } from './mocks/server';
@@ -44,7 +44,6 @@ function makeJob(
   status: ExportJob['status'],
   overrides: Partial<ExportJob> = {},
 ): ExportJob {
-  const isExpired = status === 'expired';
   const isDone = status === 'done';
   return {
     id: `job-${status}`,
@@ -68,25 +67,6 @@ function mockJobs(jobs: ExportJob[]) {
   );
 }
 
-async function renderAndWaitForTable() {
-  seedAdminSession();
-  renderWithProviders(<AdminExports />);
-  // Wait until the table body has rendered (loading skeletons disappear)
-  await waitFor(() =>
-    expect(screen.queryByText('No export jobs yet')).not.toBeNull(),
-  ).catch(() => {
-    // If there are jobs, wait for the job type cell to appear
-  });
-}
-
-async function renderWithJobs(jobs: ExportJob[]) {
-  mockJobs(jobs);
-  seedAdminSession();
-  renderWithProviders(<AdminExports />);
-  // Wait for "listings" type cell to appear (any job with type=listings)
-  await waitFor(() => expect(screen.getAllByText('listings').length).toBeGreaterThan(0));
-}
-
 // ── Helper: get progress bar element for a given job row ─────────────────────
 
 /**
@@ -102,18 +82,17 @@ function getProgressBar(container: HTMLElement): HTMLElement | null {
 
 describe('AdminExports progress bar — queued', () => {
   it('shows progress bar for a queued job with no progressPercent (width 0%)', async () => {
+    mockJobs([makeJob('queued')]);
+    seedAdminSession();
     const { container } = renderWithProviders(<AdminExports />);
-    await renderWithJobs([makeJob('queued')]);
+    await waitFor(() => expect(screen.getAllByText('listings').length).toBeGreaterThan(0));
 
-    // Re-render was done via renderWithJobs; re-query
     const bar = getProgressBar(container);
     expect(bar).not.toBeNull();
     expect(bar!.style.width).toBe('0%');
   });
 
   it('shows progress bar for a queued job with a known progressPercent', async () => {
-    const { container } = renderWithProviders(<AdminExports />);
-    // Not the right container — let's use renderWithJobs and grab container differently
     mockJobs([makeJob('queued', { progressPercent: 15 })]);
     seedAdminSession();
     const { container: c } = renderWithProviders(<AdminExports />);
