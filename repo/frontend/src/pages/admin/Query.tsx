@@ -6,12 +6,11 @@ import PageHeader from '../../components/PageHeader';
 import DataTable from '../../components/DataTable';
 import { getErrorMessage } from '../../lib/utils';
 
-const ENTITIES = ['listings', 'users', 'conversations', 'settlements'] as const;
+const ENTITIES = ['listings', 'conversations', 'settlements'] as const;
 const OPS = ['eq', 'gt', 'lt', 'gte', 'lte', 'contains', 'in'] as const;
 
 const FIELDS: Record<string, string[]> = {
   listings: ['title', 'breed', 'region', 'priceUsd', 'age', 'rating', 'status'],
-  users: ['username', 'role', 'isActive'],
   conversations: ['listingId', 'vendorId', 'isArchived', 'isDisputed'],
   settlements: ['vendorId', 'month', 'totalCharges', 'status'],
 };

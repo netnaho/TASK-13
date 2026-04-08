@@ -1,8 +1,11 @@
 /**
  * listing-access.spec.ts
  *
- * Risk: listings in pending_review status are directly retrievable by
+ * Risk 1: listings in pending_review status are directly retrievable by
  * non-owners via GET /listings/:id, bypassing the visibility policy.
+ *
+ * Risk 2: listing detail responses expose the full vendor User entity,
+ * including sensitive fields (passwordHash, email, deviceFingerprint, lastIp).
  *
  * Covers:
  *   - anonymous caller → 404 for pending listing
@@ -11,8 +14,9 @@
  *   - owner vendor → 200
  *   - admin → 200
  *   - ACTIVE listing is visible to everyone (control)
+ *   - vendor object in listing response never contains sensitive fields
  */
-import * as request from 'supertest';
+import request from 'supertest';
 import { createTestApp, makeToken, TestContext } from './test-utils';
 import { User } from '../database/entities/user.entity';
 import { Listing, ListingStatus } from '../database/entities/listing.entity';
@@ -106,5 +110,68 @@ describe('Pending-review listing direct retrieval denied to non-owners', () => {
       .get(`/api/listings/${activeListing.id}`)
       .set('Authorization', `Bearer ${token}`);
     expect(res.body.code).toBe(200);
+  });
+
+  // ── Sensitive-field exclusion in vendor object ───────────────────────────────
+
+  const SENSITIVE_VENDOR_FIELDS = ['passwordHash', 'email', 'deviceFingerprint', 'lastIp'];
+
+  it('anonymous: active listing vendor never exposes sensitive fields', async () => {
+    const res = await request(ctx.app.getHttpServer())
+      .get(`/api/listings/${activeListing.id}`);
+    expect(res.body.code).toBe(200);
+    const vendor = res.body.data.vendor;
+    for (const field of SENSITIVE_VENDOR_FIELDS) {
+      expect(vendor).not.toHaveProperty(field);
+    }
+  });
+
+  it('shopper: active listing vendor never exposes sensitive fields', async () => {
+    const token = makeToken(ctx.jwtService, shopper.id, 'shopper', shopper.username);
+    const res = await request(ctx.app.getHttpServer())
+      .get(`/api/listings/${activeListing.id}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.body.code).toBe(200);
+    const vendor = res.body.data.vendor;
+    for (const field of SENSITIVE_VENDOR_FIELDS) {
+      expect(vendor).not.toHaveProperty(field);
+    }
+  });
+
+  it('vendor (owner): pending listing vendor never exposes sensitive fields', async () => {
+    const token = makeToken(ctx.jwtService, ownerVendor.id, 'vendor', ownerVendor.username);
+    const res = await request(ctx.app.getHttpServer())
+      .get(`/api/listings/${pendingListing.id}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.body.code).toBe(200);
+    const vendor = res.body.data.vendor;
+    for (const field of SENSITIVE_VENDOR_FIELDS) {
+      expect(vendor).not.toHaveProperty(field);
+    }
+  });
+
+  it('admin: any listing vendor never exposes sensitive fields', async () => {
+    const token = makeToken(ctx.jwtService, adminUser.id, 'admin', adminUser.username);
+    const res = await request(ctx.app.getHttpServer())
+      .get(`/api/listings/${pendingListing.id}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.body.code).toBe(200);
+    const vendor = res.body.data.vendor;
+    for (const field of SENSITIVE_VENDOR_FIELDS) {
+      expect(vendor).not.toHaveProperty(field);
+    }
+  });
+
+  it('vendor object in listing response contains only safe public fields', async () => {
+    const res = await request(ctx.app.getHttpServer())
+      .get(`/api/listings/${activeListing.id}`);
+    expect(res.body.code).toBe(200);
+    const vendor = res.body.data.vendor;
+    expect(vendor).toHaveProperty('id');
+    expect(vendor).toHaveProperty('username');
+    expect(vendor).toHaveProperty('role');
+    // Exhaustive check — only these three fields should be present
+    const vendorKeys = Object.keys(vendor);
+    expect(vendorKeys.sort()).toEqual(['id', 'role', 'username'].sort());
   });
 });

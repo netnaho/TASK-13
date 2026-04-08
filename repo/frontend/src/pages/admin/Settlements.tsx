@@ -39,7 +39,7 @@ export default function AdminSettlements() {
     mutationFn: (id: string) => {
       if (role === 'ops_reviewer') return settlementsApi.approveStep1(id);
       if (role === 'finance_admin') return settlementsApi.approveStep2(id);
-      return settlementsApi.approve(id);
+      return Promise.reject(new Error('Your role cannot approve settlements'));
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['settlements'] }); toast('Approved!'); },
     onError: (err) => toast(getErrorMessage(err), 'error'),
@@ -98,12 +98,12 @@ export default function AdminSettlements() {
             header: 'Actions',
             render: (r: Settlement) => (
               <div className="flex items-center gap-2">
-                {r.status === 'pending' && (role === 'ops_reviewer' || role === 'admin') && (
+                {r.status === 'pending' && role === 'ops_reviewer' && (
                   <button onClick={() => approveMutation.mutate(r.id)} className="text-xs bg-blue-600 text-white px-2 py-1 rounded">
                     Step 1
                   </button>
                 )}
-                {r.status === 'reviewer_approved' && (role === 'finance_admin' || role === 'admin') && (
+                {r.status === 'reviewer_approved' && role === 'finance_admin' && (
                   <button onClick={() => approveMutation.mutate(r.id)} className="text-xs bg-green-600 text-white px-2 py-1 rounded">
                     Step 2
                   </button>

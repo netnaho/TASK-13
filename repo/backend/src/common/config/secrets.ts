@@ -11,6 +11,7 @@
 
 const DEV_JWT_SECRET = 'local_dev_jwt_secret_change_in_prod';
 const DEV_ENCRYPTION_KEY = 'local_dev_encryption_key_change_in_prod';
+const DEV_DB_PASSWORD = 'petmarket_secret';
 
 function isProduction(): boolean {
   return process.env.NODE_ENV === 'production';
@@ -47,3 +48,4 @@ function requireSecret(envVar: string, devDefault: string): string {
 
 export const JWT_SECRET = requireSecret('JWT_SECRET', DEV_JWT_SECRET);
 export const FIELD_ENCRYPTION_KEY = requireSecret('FIELD_ENCRYPTION_KEY', DEV_ENCRYPTION_KEY);
+export const DB_PASSWORD = requireSecret('DB_PASSWORD', DEV_DB_PASSWORD);

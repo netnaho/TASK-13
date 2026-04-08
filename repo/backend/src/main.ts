@@ -12,6 +12,12 @@ async function bootstrap(): Promise<void> {
   const logger = createWinstonLogger();
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger });
 
+  // Block unauthenticated static access to voice recordings.
+  // Authenticated access is served via GET /api/conversations/voice/:fileName.
+  app.use('/uploads/voice', (_req: unknown, res: any) => {
+    res.status(401).json({ code: 401, msg: 'Unauthorized', timestamp: new Date().toISOString() });
+  });
+
   app.useStaticAssets(join(__dirname, '..', 'uploads'), { prefix: '/uploads' });
 
   app.setGlobalPrefix('api');

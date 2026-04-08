@@ -1,6 +1,42 @@
 import { http, HttpResponse } from 'msw';
 
-const API_BASE = 'http://localhost:3001/api';
+export const API_BASE = 'http://localhost:3001/api';
+
+/** Re-usable listing fixture for test assertions. */
+export const MOCK_LISTING = {
+  id: 'listing-1',
+  vendorId: 'vendor-1',
+  title: 'Golden Retriever Puppy',
+  description: 'A friendly golden retriever puppy',
+  breed: 'Golden Retriever',
+  age: 3,
+  region: 'California',
+  priceUsd: 1200,
+  rating: 4.5,
+  photos: [] as string[],
+  status: 'active',
+  sensitiveWordFlagged: false,
+  createdAt: new Date().toISOString(),
+};
+
+/** Build a standard paginated listings API response. */
+export function makeListingsResponse(
+  items: typeof MOCK_LISTING[],
+  fallback?: { similarBreed: typeof MOCK_LISTING[]; trending: typeof MOCK_LISTING[] },
+) {
+  return {
+    code: 200,
+    msg: 'OK',
+    data: {
+      items,
+      total: items.length,
+      page: 1,
+      limit: 20,
+      totalPages: items.length > 0 ? 1 : 0,
+      ...(fallback !== undefined ? { fallback } : {}),
+    },
+  };
+}
 
 export const handlers = [
   // Auth: login success
@@ -31,35 +67,9 @@ export const handlers = [
     );
   }),
 
-  // Listings: search
+  // Listings: search — default returns one listing
   http.get(`${API_BASE}/listings`, () => {
-    return HttpResponse.json({
-      code: 200,
-      msg: 'OK',
-      data: {
-        items: [
-          {
-            id: 'listing-1',
-            vendorId: 'vendor-1',
-            title: 'Golden Retriever Puppy',
-            description: 'A friendly golden retriever puppy',
-            breed: 'Golden Retriever',
-            age: 3,
-            region: 'California',
-            priceUsd: 1200,
-            rating: 4.5,
-            photos: [],
-            status: 'active',
-            sensitiveWordFlagged: false,
-            createdAt: new Date().toISOString(),
-          },
-        ],
-        total: 1,
-        page: 1,
-        limit: 20,
-        totalPages: 1,
-      },
-    });
+    return HttpResponse.json(makeListingsResponse([MOCK_LISTING]));
   }),
 
   // Listings: create

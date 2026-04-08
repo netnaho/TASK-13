@@ -154,6 +154,12 @@ export default function Listings() {
                 <option key={b} value={b}>{b}</option>
               ))}
             </select>
+            <input
+              type="text"
+              placeholder="Region"
+              onChange={(e) => setFilters(f => ({ ...f, region: e.target.value || undefined, page: 1 }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            />
             <select
               onChange={(e) => setFilters(f => ({ ...f, sort: e.target.value || undefined, page: 1 }))}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
@@ -182,6 +188,42 @@ export default function Listings() {
                 type="number"
                 placeholder="Max $"
                 onChange={(e) => setFilters(f => ({ ...f, maxPrice: e.target.value ? Number(e.target.value) : undefined }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                placeholder="Min age"
+                min={0}
+                onChange={(e) => setFilters(f => ({ ...f, minAge: e.target.value ? Number(e.target.value) : undefined, page: 1 }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              />
+              <input
+                type="number"
+                placeholder="Max age"
+                min={0}
+                onChange={(e) => setFilters(f => ({ ...f, maxAge: e.target.value ? Number(e.target.value) : undefined, page: 1 }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                placeholder="Min ★"
+                min={0}
+                max={5}
+                step={0.1}
+                onChange={(e) => setFilters(f => ({ ...f, minRating: e.target.value ? Number(e.target.value) : undefined, page: 1 }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              />
+              <input
+                type="number"
+                placeholder="Max ★"
+                min={0}
+                max={5}
+                step={0.1}
+                onChange={(e) => setFilters(f => ({ ...f, maxRating: e.target.value ? Number(e.target.value) : undefined, page: 1 }))}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
               />
             </div>

@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { createHash } from 'crypto';
 import { User, UserRole } from '../database/entities/user.entity';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -17,6 +18,30 @@ import { UserSanitizerService } from '../common/sanitization/user-sanitizer.serv
 import { UserView } from '../common/sanitization/user-view.model';
 import { logger } from '../common/logger/winston.logger';
 import { runSeed } from '../database/seed';
+
+/**
+ * Masks an IPv4 address to its /24 subnet (last octet replaced with *).
+ * For IPv6 or non-standard formats, returns a short SHA-256 prefix so the
+ * value is correlatable across events without exposing the raw address.
+ * Exported for unit testing.
+ */
+export function maskIp(ip?: string): string {
+  if (!ip) return 'unknown';
+  const v4 = ip.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}$/);
+  if (v4) return `${v4[1]}.*`;
+  return createHash('sha256').update(ip).digest('hex').slice(0, 8);
+}
+
+/**
+ * Returns a short (8-hex-char) SHA-256 prefix of a device fingerprint so log
+ * entries can be correlated across events without leaking the raw value.
+ * Returns undefined when no fingerprint is present.
+ * Exported for unit testing.
+ */
+export function hashFp(fp?: string): string | undefined {
+  if (!fp) return undefined;
+  return 'fp:' + createHash('sha256').update(fp).digest('hex').slice(0, 8);
+}
 
 @Injectable()
 export class AuthService implements OnApplicationBootstrap {
@@ -78,10 +103,22 @@ export class AuthService implements OnApplicationBootstrap {
   ): Promise<{ token: string; user: UserView }> {
     const user = await this.userRepo.findOne({
       where: { username: dto.username, isActive: true },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        passwordHash: true,
+        role: true,
+        isActive: true,
+        deviceFingerprint: true,
+        lastIp: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
     if (!user) {
-      logger.warn(`Login failed: unknown user ${dto.username}`, { context: 'Auth', ip, deviceFingerprint });
+      logger.warn(`Login failed: unknown user ${dto.username}`, { context: 'Auth', ip: maskIp(ip), fpHash: hashFp(deviceFingerprint) });
       await this.auditService.log({
         action: 'auth.login_failed',
         actorId: 'unknown',
@@ -95,7 +132,7 @@ export class AuthService implements OnApplicationBootstrap {
 
     const passwordValid = await bcrypt.compare(dto.password, user.passwordHash);
     if (!passwordValid) {
-      logger.warn(`Login failed: bad password for ${dto.username}`, { context: 'Auth', ip, deviceFingerprint });
+      logger.warn(`Login failed: bad password for ${dto.username}`, { context: 'Auth', ip: maskIp(ip), fpHash: hashFp(deviceFingerprint) });
       await this.auditService.log({
         action: 'auth.login_failed',
         actorId: user.id,
@@ -122,7 +159,7 @@ export class AuthService implements OnApplicationBootstrap {
 
     logger.info(`Login success: ${user.username} role=${user.role}`, {
       context: 'Auth',
-      ip,
+      ip: maskIp(ip),
     });
 
     await this.auditService.log({

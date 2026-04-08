@@ -65,6 +65,8 @@ export class ExportsService implements OnModuleInit, OnModuleDestroy {
       status: ExportJobStatus.QUEUED,
       params: { type: dto.type, filters: dto.filters ?? {} },
       expiresAt,
+      progressPercent: 0,
+      progressStage: null,
     });
 
     return this.exportRepo.save(job);
@@ -137,7 +139,12 @@ export class ExportsService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async processJob(job: ExportJob): Promise<void> {
-    await this.exportRepo.update(job.id, { status: ExportJobStatus.RUNNING });
+    // Stage 1 — mark running, progress 10 %
+    await this.exportRepo.update(job.id, {
+      status: ExportJobStatus.RUNNING,
+      progressPercent: 10,
+      progressStage: 'starting',
+    });
 
     try {
       const type = job.params.type as string;
@@ -175,17 +182,34 @@ export class ExportsService implements OnModuleInit, OnModuleDestroy {
           csv = 'id\nno_data';
       }
 
+      // Stage 2 — data fetched, progress 50 %
+      await this.setProgress(job.id, 50, 'data_fetched');
+
       const filePath = path.join(EXPORT_DIR, `${job.id}.csv`);
       fs.writeFileSync(filePath, csv, 'utf-8');
 
+      // Stage 3 — file written, progress 90 %
+      await this.setProgress(job.id, 90, 'file_written');
+
+      // Stage 4 — done, progress 100 %
       await this.exportRepo.update(job.id, {
         status: ExportJobStatus.DONE,
         filePath,
+        progressPercent: 100,
+        progressStage: 'done',
       });
     } catch (err) {
+      // Only update status; progressPercent is intentionally left at whatever
+      // value it had when the failure occurred so callers can see how far along
+      // the job got before it failed.
       await this.exportRepo.update(job.id, { status: ExportJobStatus.FAILED });
       throw err;
     }
+  }
+
+  /** Persist an in-progress percentage + stage label without touching status. */
+  private async setProgress(id: string, percent: number, stage: string): Promise<void> {
+    await this.exportRepo.update(id, { progressPercent: percent, progressStage: stage });
   }
 
   private async exportListings(

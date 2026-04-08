@@ -36,9 +36,11 @@ export async function createTestUser(
   overrides: Partial<User> = {},
 ): Promise<User> {
   const repo = ds.getRepository(User);
+  const name = uid('u');
   return repo.save(
     repo.create({
-      username: uid('u'),
+      username: name,
+      email: `${name}@test.local`,
       passwordHash: '$2b$10$placeholder_hash_for_tests_only',
       role: role as any,
       isActive: true,

@@ -1,8 +1,9 @@
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull, LessThan } from 'typeorm';
+import { Repository, LessThan } from 'typeorm';
 import * as crypto from 'crypto';
 import { AuditLog } from '../database/entities/audit-log.entity';
+import { AuditArchivalRecord } from '../database/entities/audit-archival-record.entity';
 import { User } from '../database/entities/user.entity';
 import {
   RETENTION_BATCH_SIZE,
@@ -48,6 +49,8 @@ export class AuditService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @InjectRepository(AuditLog)
     private readonly auditRepo: Repository<AuditLog>,
+    @InjectRepository(AuditArchivalRecord)
+    private readonly archivalRepo: Repository<AuditArchivalRecord>,
   ) {}
 
   onModuleInit(): void {
@@ -173,57 +176,86 @@ export class AuditService implements OnModuleInit, OnModuleDestroy {
   /**
    * Archives audit records older than the 7-year retention boundary.
    *
-   * Tombstone strategy: `deviceFingerprint` and `ip` (PII) are cleared; all
-   * fields that form the SHA-256 hash payload (action, actorId, entityType,
-   * entityId, before, after, ts/createdAt) are untouched so the chain stays
-   * fully verifiable after archival.
+   * Strict append-only semantics: original AuditLog rows are NEVER mutated
+   * after creation.  Instead, each eligible record gets a corresponding row
+   * inserted into `audit_archival_records`, and a single tombstone entry is
+   * appended to the audit chain documenting the run.
    *
-   * Idempotent: the WHERE clause includes `archivedAt IS NULL`, so re-running
-   * the job never double-processes a record.
+   * Idempotency: the unique constraint on audit_archival_records.auditLogId
+   * ensures the same record cannot be processed twice.
    *
-   * @param dryRun When true, counts eligible records without modifying them.
+   * @param dryRun When true, counts eligible records without creating any rows.
    */
   async runRetentionJob(dryRun = false): Promise<RetentionRunResult> {
     const cutoff = retentionCutoff();
+
+    // Load the set of already-archived audit log IDs for efficient in-loop
+    // idempotency checks without mutating the original rows.
+    const alreadyArchivedIds = new Set<string>(
+      (await this.archivalRepo.find({ select: ['auditLogId'] } as any))
+        .map((r: AuditArchivalRecord) => r.auditLogId),
+    );
+
     let processed = 0;
     let archived = 0;
     let offset = 0;
 
     while (true) {
+      // Fetch all records older than cutoff, page forward on each iteration.
+      // We cannot rely on archivedAt IS NULL on the original rows (they are
+      // immutable), so we page manually and filter via alreadyArchivedIds.
       const batch = await this.auditRepo.find({
-        where: {
-          archivedAt: IsNull(),
-          createdAt: LessThan(cutoff),
-        },
+        where: { createdAt: LessThan(cutoff) },
         order: { createdAt: 'ASC' },
         take: RETENTION_BATCH_SIZE,
-        // In live mode the processed records are marked archivedAt IS NOT NULL,
-        // so the query self-shrinks and offset stays 0.  In dry-run mode
-        // nothing changes, so we must page forward manually.
-        skip: dryRun ? offset : 0,
+        skip: offset,
       });
 
       if (batch.length === 0) break;
 
-      processed += batch.length;
+      const newBatch = batch.filter((r: AuditLog) => !alreadyArchivedIds.has(r.id));
 
-      if (!dryRun) {
-        const ids = batch.map((r: AuditLog) => r.id);
-        const now = new Date();
-        await this.auditRepo
-          .createQueryBuilder()
-          .update(AuditLog)
-          .set({ deviceFingerprint: null, ip: null, archivedAt: now, archiveReason: ARCHIVE_REASON })
-          .whereInIds(ids)
-          .andWhere('archivedAt IS NULL') // belt-and-suspenders idempotency guard
-          .execute();
-        archived += batch.length;
-      } else {
-        archived += batch.length;
-        offset += RETENTION_BATCH_SIZE;
+      if (newBatch.length > 0) {
+        processed += newBatch.length;
+
+        if (!dryRun) {
+          const now = new Date();
+          const archivalRecords = newBatch.map((r: AuditLog) =>
+            this.archivalRepo.create({
+              auditLogId: r.id,
+              archivedAt: now,
+              archiveReason: ARCHIVE_REASON,
+            }),
+          );
+          await this.archivalRepo.save(archivalRecords);
+          archived += newBatch.length;
+
+          // Track locally so subsequent batches in the same run see them.
+          for (const r of newBatch) alreadyArchivedIds.add(r.id);
+        } else {
+          archived += newBatch.length;
+        }
       }
 
+      offset += batch.length;
+
       if (batch.length < RETENTION_BATCH_SIZE) break;
+    }
+
+    // Append an immutable tombstone documenting this retention run.
+    // Preserves append-only semantics: the archival decision is a new,
+    // unforgeable entry in the hash chain rather than an implicit mutation.
+    if (!dryRun && archived > 0) {
+      await this.log({
+        action: 'audit.retention_archival',
+        actorId: 'system',
+        entityType: 'audit_log',
+        after: {
+          count: archived,
+          cutoff: cutoff.toISOString(),
+          reason: ARCHIVE_REASON,
+        },
+      });
     }
 
     return { dryRun, processed, archived, cutoff };

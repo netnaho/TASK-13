@@ -12,7 +12,7 @@
  *   - GET /users/me (admin) → email unmasked in profile response
  *   - POST /query entity=users (admin) → result rows have real email, not ***
  */
-import * as request from 'supertest';
+import request from 'supertest';
 import { createTestApp, makeToken, TestContext } from './test-utils';
 import { User } from '../database/entities/user.entity';
 import { uid, cleanup } from './test-fixtures';

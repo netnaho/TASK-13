@@ -77,7 +77,9 @@ export class SettlementsService {
     }
 
     const expected = Number(settlement.totalCharges);
-    const actual = expected;
+    const actual = settlement.data?.actualCharges != null
+      ? Number(settlement.data.actualCharges)
+      : expected;
     const variance = actual - expected;
     const variancePercent = expected > 0 ? (variance / expected) * 100 : 0;
 
@@ -292,6 +294,42 @@ export class SettlementsService {
     return saved;
   }
 
+  /**
+   * Records actual charges for reconciliation against the expected totalCharges.
+   * Stores values in the existing `data` JSONB field — no schema migration needed.
+   * Safe for legacy rows: settlements without this field fall back to expected in findOne().
+   */
+  async recordActualCharges(
+    id: string,
+    actualCharges: number,
+    actorId: string,
+    notes?: string,
+  ): Promise<Settlement> {
+    const settlement = await this.settlementRepo.findOne({ where: { id } });
+    if (!settlement) throw new NotFoundException('Settlement not found');
+
+    const before = { ...settlement } as unknown as Record<string, unknown>;
+    settlement.data = {
+      ...settlement.data,
+      actualCharges: round(actualCharges),
+      reconciledAt: new Date().toISOString(),
+      reconciledBy: actorId,
+      ...(notes != null ? { reconciliationNotes: notes } : {}),
+    };
+    const saved = await this.settlementRepo.save(settlement);
+
+    await this.auditService.log({
+      action: 'settlement.reconcile',
+      actorId,
+      entityType: 'settlement',
+      entityId: id,
+      before,
+      after: saved as unknown as Record<string, unknown>,
+    });
+
+    return saved;
+  }
+
   async exportCsv(
     id: string,
     requesterId: string,
@@ -315,11 +353,14 @@ export class SettlementsService {
     const isAdmin = requesterRole === 'admin';
     const vendor = settlement.vendor;
 
-    const phone = vendor?.deviceFingerprint
+    // Use the dedicated phone field — never the device fingerprint.
+    // Empty string when no phone has been provided (not a placeholder like 'N/A'
+    // because that could be mistaken for a real value in downstream processing).
+    const phone = vendor?.phone
       ? isAdmin
-        ? this.encryption.decrypt(vendor.deviceFingerprint)
-        : '****' + this.encryption.decrypt(vendor.deviceFingerprint).slice(-4)
-      : 'N/A';
+        ? this.encryption.decrypt(vendor.phone)
+        : '****' + this.encryption.decrypt(vendor.phone).slice(-4)
+      : '';
 
     const email = vendor?.email
       ? isAdmin

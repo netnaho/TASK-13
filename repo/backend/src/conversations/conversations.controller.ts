@@ -6,16 +6,18 @@ import {
   Body,
   Query,
   Req,
+  Res,
   UseGuards,
   UseInterceptors,
   UploadedFile,
   ParseUUIDPipe,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
-import { extname } from 'path';
-import { Request } from 'express';
+import { extname, join } from 'path';
+import { Request, Response } from 'express';
 import { ConversationsService } from './conversations.service';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
@@ -105,11 +107,54 @@ export class ConversationsController {
   ) {
     if (!file) throw new BadRequestException('Audio file is required');
     const user = (req as Request & { user: JwtPayload }).user;
-    const audioUrl = `/uploads/voice/${file.filename}`;
+    // Store the authenticated endpoint URL, not the public static path.
+    const audioUrl = `/api/conversations/voice/${file.filename}`;
     return this.conversationsService.sendMessage(id, user.sub, user.role, {
       type: 'voice',
       audioUrl,
     } as any);
+  }
+
+  /**
+   * Authenticated voice file retrieval.
+   * Only conversation participants (vendor, shoppers) and admins may access a
+   * voice recording. The file is served directly; errors are sent as JSON
+   * matching the standard { code, msg, timestamp } envelope.
+   */
+  @Get('voice/:fileName')
+  async serveVoiceFile(
+    @Param('fileName') fileName: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ): Promise<void> {
+    // Reject file names that could escape the uploads/voice directory.
+    if (!fileName || !/^[\w.-]+$/.test(fileName)) {
+      throw new BadRequestException('Invalid file name');
+    }
+
+    const user = (req as Request & { user: JwtPayload }).user;
+
+    // Throws NotFoundException / ForbiddenException on failure;
+    // those bubble up to the global HttpExceptionFilter.
+    await this.conversationsService.resolveVoiceFilePath(
+      fileName,
+      user.sub,
+      user.role,
+    );
+
+    // __dirname is dist/conversations/ at runtime; go up two levels to reach
+    // the backend root, then into uploads/voice/.
+    const filePath = join(__dirname, '..', '..', 'uploads', 'voice', fileName);
+
+    res.sendFile(filePath, (err) => {
+      if (err && !res.headersSent) {
+        res.status(404).json({
+          code: 404,
+          msg: 'Voice file not found',
+          timestamp: new Date().toISOString(),
+        });
+      }
+    });
   }
 }
 

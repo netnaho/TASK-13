@@ -19,6 +19,7 @@ import {
   FreightCalcDto,
   RejectDto,
   SettlementFiltersDto,
+  ReconcileDto,
 } from './dto/settlement.dto';
 import { JwtAuthGuard, JwtPayload } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -82,6 +83,17 @@ export class SettlementsController {
   ) {
     const user = (req as Request & { user: JwtPayload }).user;
     return this.settlementsService.reject(id, user.sub, user.role, dto.reason);
+  }
+
+  @Post(':id/reconcile')
+  @Roles('admin', 'finance_admin')
+  reconcile(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReconcileDto,
+    @Req() req: Request,
+  ) {
+    const user = (req as Request & { user: JwtPayload }).user;
+    return this.settlementsService.recordActualCharges(id, dto.actualCharges, user.sub, dto.notes);
   }
 
   @Get('export/:id')

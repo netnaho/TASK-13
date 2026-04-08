@@ -7,6 +7,7 @@ import { JWT_SECRET } from '../common/config/secrets';
 import { User } from '../database/entities/user.entity';
 import { EncryptionService } from '../common/encryption/encryption.service';
 import { UserSanitizerService } from '../common/sanitization/user-sanitizer.service';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { UserSanitizerService } from '../common/sanitization/user-sanitizer.serv
     JwtModule.register({
       secret: JWT_SECRET,
     }),
+    AuditModule,
   ],
   controllers: [UsersController],
   providers: [UsersService, EncryptionService, UserSanitizerService],

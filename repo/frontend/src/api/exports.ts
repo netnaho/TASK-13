@@ -9,6 +9,10 @@ export interface ExportJob {
   params: Record<string, unknown>;
   expiresAt: string | null;
   createdAt: string;
+  /** 0–100 progress percentage. Null on legacy rows or before processing starts. */
+  progressPercent?: number | null;
+  /** Human-readable stage label set by the backend processor. */
+  progressStage?: string | null;
 }
 
 export const exportsApi = {

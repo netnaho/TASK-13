@@ -8,10 +8,11 @@ import { CreditScore } from '../database/entities/credit-score.entity';
 import { Settlement } from '../database/entities/settlement.entity';
 import { Conversation } from '../database/entities/conversation.entity';
 import { Listing } from '../database/entities/listing.entity';
+import { User } from '../database/entities/user.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([CreditScore, Settlement, Conversation, Listing]),
+    TypeOrmModule.forFeature([CreditScore, Settlement, Conversation, Listing, User]),
     JwtModule.register({
       secret: JWT_SECRET,
     }),

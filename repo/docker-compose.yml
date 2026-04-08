@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_DB: petmarket
       POSTGRES_USER: petmarket
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-petmarket_secret}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-petmarket_secret}   # local-dev default only — set DB_PASSWORD in .env for production
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -30,7 +30,7 @@ services:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: petmarket
-      DB_PASSWORD: ${DB_PASSWORD:-petmarket_secret}
+      DB_PASSWORD: ${DB_PASSWORD:-petmarket_secret}   # local-dev default only — set DB_PASSWORD in .env for production
       DB_NAME: petmarket
       JWT_SECRET: ${JWT_SECRET:-}
       FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:-}

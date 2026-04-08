@@ -6,6 +6,7 @@ import PageHeader from '../../components/PageHeader';
 import DataTable from '../../components/DataTable';
 import StatusBadge from '../../components/StatusBadge';
 import { formatDateTime, getErrorMessage } from '../../lib/utils';
+import { getProgressBarState, shouldShowProgressBar } from '../../lib/export-progress';
 
 const EXPORT_TYPES = ['listings', 'conversations', 'settlements', 'audit'];
 
@@ -79,16 +80,22 @@ export default function AdminExports() {
           {
             key: 'status',
             header: 'Status',
-            render: (r: ExportJob) => (
-              <div className="flex items-center gap-2">
-                <StatusBadge status={r.status} />
-                {r.status === 'running' && (
-                  <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                    <div className="h-full bg-[#1a56db] rounded-full animate-pulse" style={{ width: '60%' }} />
-                  </div>
-                )}
-              </div>
-            ),
+            render: (r: ExportJob) => {
+              const bar = getProgressBarState(r.status, r.progressPercent);
+              return (
+                <div className="flex items-center gap-2">
+                  <StatusBadge status={r.status} />
+                  {shouldShowProgressBar(r.status) && (
+                    <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full bg-[#1a56db] rounded-full${bar.indeterminate ? ' animate-pulse' : ''}`}
+                        style={{ width: bar.width }}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            },
           },
           {
             key: 'createdAt',

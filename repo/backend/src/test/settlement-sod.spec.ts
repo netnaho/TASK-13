@@ -11,7 +11,7 @@
  *   - finance_admin cannot perform step 1 (wrong role) → 403
  *   - non-reviewer role cannot perform step 1 → 403
  */
-import * as request from 'supertest';
+import request from 'supertest';
 import { createTestApp, makeToken, TestContext } from './test-utils';
 import { User } from '../database/entities/user.entity';
 import { Listing, ListingStatus } from '../database/entities/listing.entity';

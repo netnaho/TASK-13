@@ -17,6 +17,7 @@ import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { canViewListing } from './listing-visibility.policy';
 import { RequestRiskContext } from '../common/risk/request-risk-context';
+import { VendorView } from './dto/vendor-view.dto';
 
 const TYPO_MAP: Record<string, string> = {
   retreiver: 'retriever',
@@ -188,7 +189,14 @@ export class ListingsService {
     if (!listing || !canViewListing(listing, requesterRole, requesterId)) {
       throw new NotFoundException('Listing not found');
     }
+    if (listing.vendor) {
+      listing.vendor = this.projectVendor(listing.vendor) as any;
+    }
     return listing;
+  }
+
+  private projectVendor(vendor: { id: string; username: string; role: string }): VendorView {
+    return { id: vendor.id, username: vendor.username, role: vendor.role };
   }
 
   async create(

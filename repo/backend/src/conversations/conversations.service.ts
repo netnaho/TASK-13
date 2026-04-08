@@ -247,6 +247,40 @@ export class ConversationsService {
     return saved;
   }
 
+  /**
+   * Verify that `userId` is allowed to fetch the voice file identified by
+   * `fileName`, then return the bare filename so the controller can stream it.
+   *
+   * Authorization rules:
+   *   - Admin: allowed without a conversation check.
+   *   - Vendor/Shopper: must be a participant of the conversation that owns
+   *     the message referencing this file.
+   */
+  async resolveVoiceFilePath(
+    fileName: string,
+    userId: string,
+    role: string,
+  ): Promise<string> {
+    if (role === 'admin') {
+      return fileName;
+    }
+
+    // Look up the message that references this audio file (both URL formats).
+    const msg = await this.msgRepo.findOne({
+      where: [
+        { audioUrl: `/api/conversations/voice/${fileName}` },
+        { audioUrl: `/uploads/voice/${fileName}` },
+      ],
+    });
+
+    if (!msg) throw new NotFoundException('Voice file not found');
+
+    // Re-use existing access control — throws ForbiddenException if denied.
+    await this.assertAccess(msg.conversationId, userId, role);
+
+    return fileName;
+  }
+
   async getCannedResponses(): Promise<CannedResponse[]> {
     return this.cannedRepo.find({ order: { createdAt: 'DESC' } });
   }

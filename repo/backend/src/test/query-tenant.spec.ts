@@ -1,4 +1,4 @@
-import * as request from 'supertest';
+import request from 'supertest';
 import { createTestApp, makeToken, TestContext } from './test-utils';
 import { User } from '../database/entities/user.entity';
 

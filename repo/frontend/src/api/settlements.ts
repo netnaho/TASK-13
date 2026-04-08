@@ -46,7 +46,6 @@ export const settlementsApi = {
   getOne: (id: string) => apiGet<SettlementDetail>(`/settlements/${id}`),
   generateMonthly: (month: string) =>
     apiPost<Settlement[]>('/settlements/generate-monthly', { month }),
-  approve: (id: string) => apiPost<Settlement>(`/settlements/${id}/approve`),
   approveStep1: (id: string) => apiPost<Settlement>(`/settlements/${id}/approve-step1`),
   approveStep2: (id: string) => apiPost<Settlement>(`/settlements/${id}/approve-step2`),
   reject: (id: string, reason: string) =>

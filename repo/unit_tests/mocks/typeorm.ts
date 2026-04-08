@@ -1,5 +1,6 @@
 export function Entity(..._args: any[]): ClassDecorator { return () => {}; }
 export function PrimaryGeneratedColumn(..._args: any[]): PropertyDecorator { return () => {}; }
+export function PrimaryColumn(..._args: any[]): PropertyDecorator { return () => {}; }
 export function Column(..._args: any[]): PropertyDecorator { return () => {}; }
 export function CreateDateColumn(..._args: any[]): PropertyDecorator { return () => {}; }
 export function UpdateDateColumn(..._args: any[]): PropertyDecorator { return () => {}; }

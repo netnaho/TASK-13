@@ -84,8 +84,9 @@ describe('isEligibleForArchival', () => {
 // ── RetentionRunResult shape from runRetentionJob ─────────────────────────────
 //
 // The full DB-wired path is tested via integration tests. These unit tests
-// drive the service through a stub repository to verify batch logic, dry-run
-// behaviour, and idempotency without touching Postgres.
+// drive the service through stub repositories to verify batch logic, dry-run
+// behaviour, and strict append-only semantics — original rows are NEVER
+// mutated; instead an AuditArchivalRecord is inserted per eligible row.
 
 import { AuditService } from '../backend/src/audit/audit.service';
 import { Repository } from 'typeorm';
@@ -109,12 +110,14 @@ function makeRecord(createdAtIso: string, archivedAt: Date | null = null) {
   };
 }
 
-function makeRepo(records: ReturnType<typeof makeRecord>[]) {
+/** Stub for the main audit log repo. find() filters only by createdAt (records are immutable). */
+function makeAuditRepo(records: ReturnType<typeof makeRecord>[]) {
   const stored = [...records];
   return {
     find: jest.fn(({ where, take, skip }: any) => {
+      // Original rows are immutable — filter only by age, never by archivedAt
       const eligible = stored.filter(
-        (r) => r.archivedAt === null && r.createdAt < where.createdAt,
+        (r) => r.createdAt < where.createdAt,
       );
       return Promise.resolve(eligible.slice(skip ?? 0, (skip ?? 0) + take));
     }),
@@ -123,30 +126,47 @@ function makeRepo(records: ReturnType<typeof makeRecord>[]) {
     ),
     save: jest.fn((e: any) => Promise.resolve(e)),
     create: jest.fn((e: any) => e),
-    createQueryBuilder: jest.fn(() => ({
-      update: jest.fn().mockReturnThis(),
-      set: jest.fn().mockReturnThis(),
-      whereInIds: jest.fn().mockReturnThis(),
-      andWhere: jest.fn().mockReturnThis(),
-      execute: jest.fn(() => {
-        // Simulate the UPDATE: mark records as archived
-        // (simplified — doesn't re-check archivedAt IS NULL to keep test simple)
-        return Promise.resolve({ affected: records.length });
-      }),
-    })),
     count: jest.fn(() => Promise.resolve(0)),
-    manager: { getRepository: jest.fn(() => ({ createQueryBuilder: jest.fn(() => ({ where: jest.fn().mockReturnThis(), getMany: jest.fn(() => Promise.resolve([])) })) })) },
+    manager: {
+      getRepository: jest.fn(() => ({
+        createQueryBuilder: jest.fn(() => ({
+          where: jest.fn().mockReturnThis(),
+          getMany: jest.fn(() => Promise.resolve([])),
+        })),
+      })),
+    },
   } as unknown as Repository<any>;
 }
 
-describe('AuditService.runRetentionJob — unit (stub repo)', () => {
+/** Stub for the archival records repo. Tracks inserts; no UPDATE path exists. */
+function makeArchivalRepo(preArchivedIds: string[] = []) {
+  const archived: string[] = [...preArchivedIds];
+  return {
+    find: jest.fn(() =>
+      Promise.resolve(archived.map((id) => ({ auditLogId: id }))),
+    ),
+    create: jest.fn((e: any) => e),
+    save: jest.fn((records: any) => {
+      const items = Array.isArray(records) ? records : [records];
+      for (const r of items) archived.push(r.auditLogId);
+      return Promise.resolve(records);
+    }),
+    savedIds: archived, // for test assertions
+  };
+}
+
+describe('AuditService.runRetentionJob — strict append-only (stub repos)', () => {
   const OLD = '2010-06-01T00:00:00Z'; // 15+ years ago, always eligible
   const NEW = '2099-01-01T00:00:00Z'; // far future, never eligible
 
-  function buildService(records: ReturnType<typeof makeRecord>[]) {
-    const repo = makeRepo(records);
-    const svc = new AuditService(repo as any);
-    return { svc, repo };
+  function buildService(
+    records: ReturnType<typeof makeRecord>[],
+    preArchivedIds: string[] = [],
+  ) {
+    const auditRepo = makeAuditRepo(records);
+    const archivalRepo = makeArchivalRepo(preArchivedIds);
+    const svc = new AuditService(auditRepo as any, archivalRepo as any);
+    return { svc, auditRepo, archivalRepo };
   }
 
   it('returns dryRun:false by default', async () => {
@@ -168,31 +188,68 @@ describe('AuditService.runRetentionJob — unit (stub repo)', () => {
     expect(result.archived).toBe(0);
   });
 
-  it('dry-run counts eligible records without calling createQueryBuilder', async () => {
+  it('dry-run counts eligible records without calling archivalRepo.save', async () => {
     const records = [makeRecord(OLD), makeRecord(OLD), makeRecord(NEW)];
-    const { svc, repo } = buildService(records);
+    const { svc, archivalRepo } = buildService(records);
     const result = await svc.runRetentionJob(true);
     expect(result.dryRun).toBe(true);
     expect(result.processed).toBe(2);
     expect(result.archived).toBe(2);
-    expect((repo.createQueryBuilder as jest.Mock).mock.calls.length).toBe(0);
+    // dry-run must NOT insert any archival records
+    expect((archivalRepo.save as jest.Mock).mock.calls.length).toBe(0);
   });
 
-  it('live run calls createQueryBuilder to update eligible records', async () => {
+  it('live run creates archival records for eligible rows — NOT UPDATE on original rows', async () => {
     const records = [makeRecord(OLD), makeRecord(OLD)];
-    const { svc, repo } = buildService(records);
+    const { svc, archivalRepo } = buildService(records);
     const result = await svc.runRetentionJob(false);
     expect(result.archived).toBe(2);
-    expect((repo.createQueryBuilder as jest.Mock).mock.calls.length).toBeGreaterThan(0);
+    // archivalRepo.save must be called (archival records inserted)
+    expect((archivalRepo.save as jest.Mock).mock.calls.length).toBeGreaterThan(0);
   });
 
-  it('skips records that are already archived (archivedAt IS NOT NULL)', async () => {
-    const alreadyArchived = makeRecord(OLD, new Date('2020-01-01'));
-    const { svc } = buildService([alreadyArchived]);
+  it('original audit rows are NEVER mutated (auditRepo.save is only called for tombstone)', async () => {
+    const records = [makeRecord(OLD), makeRecord(OLD)];
+    const { svc, auditRepo } = buildService(records);
+    await svc.runRetentionJob(false);
+
+    // auditRepo.save is called exactly once: for the tombstone entry appended to the chain
+    const savedArgs: any[] = (auditRepo.save as jest.Mock).mock.calls.map((c: any[]) => c[0]);
+    expect(savedArgs.length).toBe(1);
+    expect(savedArgs[0].action).toBe('audit.retention_archival');
+    // The saved tombstone must NOT reference content from the original records
+    expect(savedArgs[0].deviceFingerprint).toBeNull();
+    expect(savedArgs[0].ip).toBeNull();
+  });
+
+  it('original rows retain their PII fields intact (not cleared)', async () => {
+    const record = makeRecord(OLD);
+    const originalFp = record.deviceFingerprint;
+    const originalIp = record.ip;
+
+    const { svc, auditRepo } = buildService([record]);
+    await svc.runRetentionJob(false);
+
+    // The only save on auditRepo is the tombstone — NOT the original record
+    const savedArgs: any[] = (auditRepo.save as jest.Mock).mock.calls.map((c: any[]) => c[0]);
+    const originalSave = savedArgs.find((e: any) => e.id === record.id);
+    expect(originalSave).toBeUndefined(); // original row never passed to save()
+
+    // The original record object itself is also unchanged in memory
+    expect(record.deviceFingerprint).toBe(originalFp);
+    expect(record.ip).toBe(originalIp);
+    expect(record.archivedAt).toBeNull();
+  });
+
+  it('skips records already in archivalRepo (idempotency)', async () => {
+    const record = makeRecord(OLD);
+    // Pre-populate archival repo with the record's ID
+    const { svc, archivalRepo } = buildService([record], [record.id]);
     const result = await svc.runRetentionJob(false);
-    // stub repo filters archivedAt === null; archived record should not appear
     expect(result.processed).toBe(0);
     expect(result.archived).toBe(0);
+    // archivalRepo.save must not be called again for an already-archived record
+    expect((archivalRepo.save as jest.Mock).mock.calls.length).toBe(0);
   });
 
   it('result includes a cutoff Date', async () => {
@@ -201,18 +258,88 @@ describe('AuditService.runRetentionJob — unit (stub repo)', () => {
     expect(result.cutoff).toBeInstanceOf(Date);
     expect(result.cutoff.getTime()).toBeLessThan(Date.now());
   });
+
+  // ── Append-only tombstone ────────────────────────────────────────────────────
+
+  it('live run appends a tombstone audit entry (auditRepo.save called)', async () => {
+    const records = [makeRecord(OLD), makeRecord(OLD)];
+    const { svc, auditRepo } = buildService(records);
+    await svc.runRetentionJob(false);
+    expect((auditRepo.save as jest.Mock).mock.calls.length).toBeGreaterThan(0);
+  });
+
+  it('tombstone entry has action="audit.retention_archival"', async () => {
+    const records = [makeRecord(OLD)];
+    const { svc, auditRepo } = buildService(records);
+    await svc.runRetentionJob(false);
+
+    const savedArgs: any[] = (auditRepo.save as jest.Mock).mock.calls.map((c: any[]) => c[0]);
+    const tombstone = savedArgs.find((e: any) => e.action === 'audit.retention_archival');
+    expect(tombstone).toBeDefined();
+    expect(tombstone.actorId).toBe('system');
+    expect(tombstone.entityType).toBe('audit_log');
+    expect(tombstone.after).toMatchObject({ count: 1 });
+  });
+
+  it('tombstone entry records the archived count in after.count', async () => {
+    const records = [makeRecord(OLD), makeRecord(OLD), makeRecord(OLD)];
+    const { svc, auditRepo } = buildService(records);
+    await svc.runRetentionJob(false);
+
+    const savedArgs: any[] = (auditRepo.save as jest.Mock).mock.calls.map((c: any[]) => c[0]);
+    const tombstone = savedArgs.find((e: any) => e.action === 'audit.retention_archival');
+    expect(tombstone?.after?.count).toBe(3);
+  });
+
+  it('dry run does NOT append a tombstone entry', async () => {
+    const records = [makeRecord(OLD), makeRecord(OLD)];
+    const { svc, auditRepo } = buildService(records);
+    await svc.runRetentionJob(true);
+    expect((auditRepo.save as jest.Mock).mock.calls.length).toBe(0);
+  });
+
+  it('no tombstone when zero records are archived', async () => {
+    const records = [makeRecord(NEW), makeRecord(NEW)];
+    const { svc, auditRepo } = buildService(records);
+    await svc.runRetentionJob(false);
+    expect((auditRepo.save as jest.Mock).mock.calls.length).toBe(0);
+  });
+
+  it('tombstone does NOT contain PII from original records', async () => {
+    const records = [makeRecord(OLD)];
+    const { svc, auditRepo } = buildService(records);
+    await svc.runRetentionJob(false);
+
+    const savedArgs: any[] = (auditRepo.save as jest.Mock).mock.calls.map((c: any[]) => c[0]);
+    const tombstone = savedArgs.find((e: any) => e.action === 'audit.retention_archival');
+    expect(tombstone?.before).toBeNull();
+    expect(tombstone?.deviceFingerprint).toBeNull();
+    expect(tombstone?.ip).toBeNull();
+  });
+
+  it('archival records are created with correct auditLogId and archiveReason', async () => {
+    const record = makeRecord(OLD);
+    const { svc, archivalRepo } = buildService([record]);
+    await svc.runRetentionJob(false);
+
+    const saved = (archivalRepo.save as jest.Mock).mock.calls[0]?.[0];
+    const archivalBatch = Array.isArray(saved) ? saved : [saved];
+    expect(archivalBatch[0].auditLogId).toBe(record.id);
+    expect(archivalBatch[0].archiveReason).toBeDefined();
+    expect(archivalBatch[0].archivedAt).toBeInstanceOf(Date);
+  });
 });
 
 // ── Hash chain remains intact after tombstone ─────────────────────────────────
 //
 // verifyEntry recomputes the hash from: action, actorId, entityType, entityId,
 // before, after, ts (createdAt). None of those fields are cleared by
-// runRetentionJob — only deviceFingerprint and ip are tombstoned.
-// This test verifies the archived record still passes hash verification.
+// runRetentionJob — only the archival manifest is created separately.
+// This test verifies the original record still passes hash verification.
 
 import * as crypto from 'crypto';
 
-describe('hash chain integrity after tombstone', () => {
+describe('hash chain integrity — original rows unchanged after retention', () => {
   function computeHash(prevHash: string | null, entry: {
     action: string; actorId: string; entityType: string;
     entityId: string | null; before: any; after: any; createdAt: Date;
@@ -229,7 +356,7 @@ describe('hash chain integrity after tombstone', () => {
     return crypto.createHash('sha256').update(payload).digest('hex');
   }
 
-  it('verifyEntry logic still passes after deviceFingerprint and ip are cleared', () => {
+  it('hash chain is valid because original rows are never touched', () => {
     const createdAt = new Date('2010-03-15T10:00:00Z');
     const record = {
       action: 'listing.create',
@@ -246,11 +373,13 @@ describe('hash chain integrity after tombstone', () => {
 
     const hash = computeHash(record.prevHash, record);
 
-    // Simulate tombstone: clear PII fields
-    const tombstoned = { ...record, deviceFingerprint: null, ip: null };
+    // Simulate retention run: original row untouched
+    // (only an AuditArchivalRecord is inserted, not an update to this row)
+    const afterRetention = { ...record }; // identical — no mutation
 
-    // verifyEntry only uses the non-PII fields, so hash should still match
-    const recomputed = computeHash(tombstoned.prevHash, tombstoned);
+    const recomputed = computeHash(afterRetention.prevHash, afterRetention);
     expect(recomputed).toBe(hash);
+    expect(afterRetention.deviceFingerprint).toBe('original-fp');
+    expect(afterRetention.ip).toBe('203.0.113.5');
   });
 });

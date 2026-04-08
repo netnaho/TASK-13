@@ -5,12 +5,16 @@ import { Listing, ListingStatus } from './entities/listing.entity';
 import { SensitiveWord } from './entities/sensitive-word.entity';
 import { CreditScore } from './entities/credit-score.entity';
 import { logger } from '../common/logger/winston.logger';
+import { EncryptionService } from '../common/encryption/encryption.service';
 
 export async function runSeed(dataSource: DataSource): Promise<void> {
   const userRepo = dataSource.getRepository(User);
   const listingRepo = dataSource.getRepository(Listing);
   const wordRepo = dataSource.getRepository(SensitiveWord);
   const creditRepo = dataSource.getRepository(CreditScore);
+
+  // Instantiated directly (no DI) because seed runs outside the NestJS container.
+  const encryption = new EncryptionService();
 
   const rounds = parseInt(process.env.BCRYPT_ROUNDS ?? '10', 10);
 
@@ -43,7 +47,7 @@ export async function runSeed(dataSource: DataSource): Promise<void> {
       const passwordHash = await bcrypt.hash(u.password, rounds);
       const user = userRepo.create({
         username: u.username,
-        email: u.email,
+        email: encryption.encrypt(u.email),
         passwordHash,
         role: u.role,
       });

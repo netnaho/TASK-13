@@ -3,6 +3,8 @@ dist/
 coverage/
 .env
 *.log
+.tmp/
 /tmp/
 /unit_tests/node_modules/
 .claude/
+CLAUDE.md

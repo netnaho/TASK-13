@@ -1,11 +1,9 @@
-const noop = (..._args: any[]) => {};
-
 const fakeLogger = {
-  info: noop,
-  error: noop,
-  warn: noop,
-  debug: noop,
-  verbose: noop,
+  info: jest.fn(),
+  error: jest.fn(),
+  warn: jest.fn(),
+  debug: jest.fn(),
+  verbose: jest.fn(),
 };
 
 export function createLogger(_opts?: any) {

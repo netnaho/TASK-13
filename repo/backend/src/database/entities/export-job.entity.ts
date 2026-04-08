@@ -45,6 +45,14 @@ export class ExportJob {
   @Column({ type: 'timestamptz', nullable: true })
   expiresAt: Date | null;
 
+  /** 0–100 progress indicator. Null on legacy rows — callers must treat null as 0 for queued. */
+  @Column({ type: 'int', nullable: true })
+  progressPercent: number | null;
+
+  /** Human-readable processing stage label (e.g. 'starting', 'data_fetched', 'file_written', 'done'). */
+  @Column({ type: 'varchar', nullable: true })
+  progressStage: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

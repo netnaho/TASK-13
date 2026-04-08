@@ -14,7 +14,7 @@
  *   - combined keyword + date range correctly narrows results
  *   - pagination response shape is present
  */
-import * as request from 'supertest';
+import request from 'supertest';
 import { createTestApp, makeToken, TestContext } from './test-utils';
 import { User } from '../database/entities/user.entity';
 import { Listing, ListingStatus } from '../database/entities/listing.entity';

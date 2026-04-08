@@ -14,6 +14,8 @@ export class ConflictException extends HttpException { constructor(msg = 'Confli
 export interface LoggerService { log(...args: any[]): any; error(...args: any[]): any; warn(...args: any[]): any; debug?(...args: any[]): any; verbose?(...args: any[]): any; [key: string]: any; }
 export interface OnModuleInit { onModuleInit(): any; }
 export interface OnModuleDestroy { onModuleDestroy(): any; }
+export interface OnApplicationBootstrap { onApplicationBootstrap(): any; }
+export class JwtService { sign(_payload: any): string { return ''; } verify(_token: string): any { return {}; } }
 export enum HttpStatus {
   OK = 200,
   ACCEPTED = 202,

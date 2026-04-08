@@ -18,6 +18,7 @@ import { Campaign } from './database/entities/campaign.entity';
 import { Settlement } from './database/entities/settlement.entity';
 import { CreditScore } from './database/entities/credit-score.entity';
 import { AuditLog } from './database/entities/audit-log.entity';
+import { AuditArchivalRecord } from './database/entities/audit-archival-record.entity';
 import { ExportJob } from './database/entities/export-job.entity';
 import { RateLimitEvent } from './database/entities/rate-limit-event.entity';
 import { SensitiveWord } from './database/entities/sensitive-word.entity';
@@ -25,6 +26,7 @@ import { CannedResponse } from './database/entities/canned-response.entity';
 import { SavedQuery } from './database/entities/saved-query.entity';
 import { RiskModule } from './risk/risk.module';
 import { QueryModule } from './query/query.module';
+import { DB_PASSWORD } from './common/config/secrets';
 
 @Module({
   imports: [
@@ -37,7 +39,7 @@ import { QueryModule } from './query/query.module';
         host: cfg.get<string>('DB_HOST', 'localhost'),
         port: cfg.get<number>('DB_PORT', 5432),
         username: cfg.get<string>('DB_USER', 'petmarket'),
-        password: cfg.get<string>('DB_PASSWORD', 'petmarket_secret'),
+        password: DB_PASSWORD,
         database: cfg.get<string>('DB_NAME', 'petmarket'),
         entities: [
           User,
@@ -48,13 +50,14 @@ import { QueryModule } from './query/query.module';
           Settlement,
           CreditScore,
           AuditLog,
+          AuditArchivalRecord,
           ExportJob,
           RateLimitEvent,
           SensitiveWord,
           CannedResponse,
           SavedQuery,
         ],
-        synchronize: true,
+        synchronize: process.env.NODE_ENV !== 'production',
         logging: ['error', 'warn'],
       }),
     }),

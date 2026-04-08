@@ -32,6 +32,16 @@ export class RejectDto {
   reason: string;
 }
 
+export class ReconcileDto {
+  @IsNumber()
+  @Type(() => Number)
+  actualCharges: number;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
 export class SettlementFiltersDto {
   @IsOptional()
   @IsString()
