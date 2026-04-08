@@ -16,7 +16,9 @@
       "@nestjs/common": ["./mocks/nestjs.ts"],
       "@nestjs/*": ["./mocks/nestjs.ts"],
       "typeorm": ["./mocks/typeorm.ts"],
-      "winston": ["./mocks/winston.ts"]
+      "winston": ["./mocks/winston.ts"],
+      "class-validator": ["./mocks/class-validator.ts"],
+      "class-transformer": ["./mocks/class-validator.ts"]
     }
   },
   "include": ["./**/*.ts"]

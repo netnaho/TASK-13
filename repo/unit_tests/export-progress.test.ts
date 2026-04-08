@@ -19,9 +19,17 @@
  *     - shouldShowProgressBar returns true only for queued/running
  */
 
+import * as fs from 'fs';
 import { ExportsService } from '../backend/src/exports/exports.service';
 import { ExportJobStatus } from '../backend/src/database/entities/export-job.entity';
 import { getProgressBarState, shouldShowProgressBar } from '../frontend/src/lib/export-progress';
+
+// processJob() writes to /tmp/exports/<id>.csv.  The service creates this
+// directory in onModuleInit(), which unit tests do not call, so we create it
+// here once before the suite runs.
+beforeAll(() => {
+  fs.mkdirSync('/tmp/exports', { recursive: true });
+});
 
 // ── Backend helpers ───────────────────────────────────────────────────────────
 
