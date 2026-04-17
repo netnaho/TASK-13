@@ -124,14 +124,14 @@ export class CreditsService {
       // premature archival / total shopper conversations.
       const totalShopperConvs = await this.convRepo
         .createQueryBuilder('c')
-        .where(':userId = ANY(c.shopperIds)', { userId })
+        .where('CAST(:userId AS text) = ANY(c.shopperIds)', { userId })
         .andWhere('c.createdAt >= :since', { since: ninetyDaysAgo })
         .getCount();
 
       // Successful = not disputed AND not archived (active or naturally closed)
       const successfulShopperConvs = await this.convRepo
         .createQueryBuilder('c')
-        .where(':userId = ANY(c.shopperIds)', { userId })
+        .where('CAST(:userId AS text) = ANY(c.shopperIds)', { userId })
         .andWhere('c.isDisputed = false')
         .andWhere('c.isArchived = false')
         .andWhere('c.createdAt >= :since', { since: ninetyDaysAgo })
@@ -144,7 +144,7 @@ export class CreditsService {
       // flagged as disputes (those count in disputeRate instead).
       const cancelledShopperConvs = await this.convRepo
         .createQueryBuilder('c')
-        .where(':userId = ANY(c.shopperIds)', { userId })
+        .where('CAST(:userId AS text) = ANY(c.shopperIds)', { userId })
         .andWhere('c.isArchived = true')
         .andWhere('c.isDisputed = false')
         .andWhere('c.createdAt >= :since', { since: ninetyDaysAgo })
@@ -158,13 +158,13 @@ export class CreditsService {
     // Count conversations where the user was a participant and a dispute was raised.
     const totalConversations = await this.convRepo
       .createQueryBuilder('c')
-      .where('(c.vendorId = :userId OR :userId = ANY(c.shopperIds))', { userId })
+      .where('(c.vendorId = :userId OR CAST(:userId AS text) = ANY(c.shopperIds))', { userId })
       .andWhere('c.createdAt >= :since', { since: ninetyDaysAgo })
       .getCount();
 
     const disputedConversations = await this.convRepo
       .createQueryBuilder('c')
-      .where('(c.vendorId = :userId OR :userId = ANY(c.shopperIds))', { userId })
+      .where('(c.vendorId = :userId OR CAST(:userId AS text) = ANY(c.shopperIds))', { userId })
       .andWhere('c.isDisputed = true')
       .andWhere('c.createdAt >= :since', { since: ninetyDaysAgo })
       .getCount();

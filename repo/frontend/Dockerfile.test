@@ -1,0 +1,8 @@
+FROM node:20-alpine
+WORKDIR /app
+# Install all deps (including dev) at build time — no runtime installs
+COPY package*.json ./
+RUN npm ci --silent
+# Copy source (test files + src pages)
+COPY . .
+CMD ["node_modules/.bin/vitest", "run"]

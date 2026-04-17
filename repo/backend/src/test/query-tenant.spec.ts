@@ -13,6 +13,7 @@ describe('Power Query Tenant Isolation', () => {
     vendor = await userRepo.save(
       userRepo.create({
         username: 'test_query_vendor',
+        email: 'test_query_vendor@test.local',
         passwordHash: 'hashed',
         role: 'vendor' as any,
         isActive: true,

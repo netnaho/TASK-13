@@ -41,6 +41,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'node -e "require(\"net\").connect(3001,\"localhost\",()=>process.exit(0)).on(\"error\",()=>process.exit(1))"']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
   frontend:
     build:
@@ -53,6 +59,72 @@ services:
       - '3000:3000'
     depends_on:
       - backend
+
+  # ── Test services (profile: test) ──────────────────────────────────────────
+  # Run with: docker compose --profile test run --rm <service>
+
+  test-unit:
+    build:
+      context: .
+      dockerfile: unit_tests/Dockerfile.ci
+    profiles:
+      - test
+
+  test-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.test
+    profiles:
+      - test
+
+  test-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: builder
+    environment:
+      NODE_ENV: test
+      PORT: 3001
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: petmarket
+      DB_PASSWORD: ${DB_PASSWORD:-petmarket_secret}
+      DB_NAME: petmarket
+      JWT_SECRET: ${JWT_SECRET:-test_jwt_secret_do_not_use_in_prod}
+      FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef}
+      BCRYPT_ROUNDS: 4
+      FRONTEND_ORIGIN: http://localhost:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: npx jest --forceExit --runInBand
+    profiles:
+      - test
+
+  test-api:
+    build:
+      context: ./API_tests
+      dockerfile: Dockerfile
+    environment:
+      API_BASE_URL: http://backend:3001/api
+    depends_on:
+      backend:
+        condition: service_healthy
+    profiles:
+      - test-api
+
+  test-e2e:
+    build:
+      context: ./e2e
+      dockerfile: Dockerfile
+    environment:
+      FRONTEND_URL: http://frontend:3000
+      BACKEND_URL: http://backend:3001
+    depends_on:
+      - frontend
+      - backend
+    profiles:
+      - test-e2e
 
 volumes:
   pgdata:

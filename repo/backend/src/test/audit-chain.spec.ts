@@ -44,8 +44,9 @@ describe('Audit chain continuity and DB-level tamper detection', () => {
       entries.push(entry);
     }
 
-    // First entry has no predecessor — prevHash is null
-    expect(entries[0].prevHash).toBeNull();
+    // entries[0].prevHash links to whatever was the last entry before this test
+    // ran — it is NOT necessarily null because other audit entries already exist
+    // in the DB.  What matters is the chain linkage within our 5 entries.
 
     // Each subsequent entry's prevHash must equal the preceding entry's hash
     for (let i = 1; i < entries.length; i++) {

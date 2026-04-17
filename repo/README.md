@@ -4,10 +4,15 @@ Full-stack pet marketplace — NestJS backend, React frontend, PostgreSQL. Fully
 
 ## Quick Start
 
+Clone the repository and start all services with Docker Compose:
+
 ```bash
-git clone <repo-url> && cd petmarket
-docker compose up --build
+git clone <your-repo-url>   # e.g. git clone https://github.com/acme/petmarket.git
+cd petmarket
+docker-compose up --build
 ```
+
+> **Note:** Both `docker-compose up --build` (Compose v1) and `docker compose up --build` (Compose v2 plugin) work. Use whichever is installed on your system. No local runtime installs (`npm`, `node`, `pip`, etc.) are required — everything runs inside Docker containers.
 
 All services start automatically. DB schema syncs and seed data loads on first boot.
 
@@ -19,82 +24,110 @@ All services start automatically. DB schema syncs and seed data loads on first b
 | Backend    | http://localhost:3001 | NestJS REST API (prefix: `/api`)           |
 | PostgreSQL | localhost:5433        | PostgreSQL 16 (user: petmarket) — host port 5433 maps to container port 5432 |
 
-## Default Accounts
+## Demo Credentials (All Roles)
 
-| Username | Password    | Role    |
-|----------|-------------|---------|
-| admin    | admin123    | admin   |
-| vendor   | vendor123   | vendor  |
-| shopper  | shopper123  | shopper |
+All five system roles are seeded automatically on first boot. No manual steps required.
 
-## Creating Operational Role Accounts
+| Username   | Email                          | Password      | Role           | Access                              |
+|------------|--------------------------------|---------------|----------------|-------------------------------------|
+| `admin`    | admin@petmarket.local          | `admin123`    | admin          | Full access to all features         |
+| `vendor`   | vendor@petmarket.local         | `vendor123`   | vendor         | Manage listings, conversations, settlements |
+| `shopper`  | shopper@petmarket.local        | `shopper123`  | shopper        | Browse listings, start conversations |
+| `reviewer1`| reviewer1@petmarket.local      | `reviewer123` | ops_reviewer   | Settlement approval step 1 only     |
+| `finance1` | finance1@petmarket.local       | `finance123`  | finance_admin  | Settlement approval step 2 only     |
 
-The `ops_reviewer` and `finance_admin` roles are required for the two-step settlement
-approval workflow. These roles are not seeded by default. Bootstrap them as follows:
+> **Security note:** Admin cannot perform settlement approval steps (separation of duties is technically enforced). Only `ops_reviewer` can approve step 1 and only `finance_admin` can approve step 2, and the two approvers must be different users.
 
-```bash
-# 1. Get admin token
-TOKEN=$(curl -s -X POST http://localhost:3001/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}' | jq -r '.data.token')
+## Web UI Verification Flow
 
-# 2. Register a new user (gets shopper role by default)
-curl -s -X POST http://localhost:3001/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username":"reviewer1","password":"reviewer123","email":"reviewer1@petmarket.local"}' | jq .
+After `docker-compose up --build` completes, verify the application end-to-end in your browser:
 
-# 3. Get the new user's ID
-USER_ID=$(curl -s http://localhost:3001/api/users \
-  -H "Authorization: Bearer $TOKEN" | jq -r '.data.items[] | select(.username=="reviewer1") | .id')
+### 1. Login
+- Open http://localhost:3000
+- You will see the **PetMarket** login screen
+- Enter `vendor` / `vendor123` and click **Sign in**
+- You are redirected to the **Listings** page
 
-# 4. Promote to ops_reviewer (admin only)
-curl -s -X PATCH http://localhost:3001/api/users/$USER_ID/role \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"role":"ops_reviewer"}' | jq .
+### 2. Browse and Create a Listing (vendor)
+- On the Listings page, click **+ New Listing**
+- Fill in: Title, Breed, Region, Age, Price, Description
+- Click **Create Listing**
+- The new listing card appears in the grid immediately
 
-# 5. Repeat steps 2-4 for finance_admin
-curl -s -X POST http://localhost:3001/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username":"finance1","password":"finance123","email":"finance1@petmarket.local"}' | jq .
+### 3. Start a Conversation (shopper)
+- Log out (clear session storage or open incognito)
+- Login as `shopper` / `shopper123`
+- Click any listing card to open its detail page
+- Click **Contact Vendor** — you are redirected to the Conversations page
+- Type a message and press Enter — the message appears in the thread
 
-FINANCE_ID=$(curl -s http://localhost:3001/api/users \
-  -H "Authorization: Bearer $TOKEN" | jq -r '.data.items[] | select(.username=="finance1") | .id')
+### 4. Trigger an Export Job (admin)
+- Login as `admin` / `admin123` — you are redirected to the admin Config page
+- Navigate to http://localhost:3000/admin/exports
+- Click **+ New Export**, select an export type, click **Start Export**
+- The job appears in the table with a **queued** status badge
 
-curl -s -X PATCH http://localhost:3001/api/users/$FINANCE_ID/role \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"role":"finance_admin"}' | jq .
-```
-
-Role assignments are audit-logged with action `user.role_changed` for accountability.
-
-**Security note:** Admin cannot perform settlement approval steps (separation of duties
-is technically enforced — not just documented). Only `ops_reviewer` can do step 1 and
-only `finance_admin` can do step 2, and the two approvers must be different users.
+### 5. Two-Step Settlement Approval
+- Login as `reviewer1` / `reviewer123` and navigate to http://localhost:3000/admin/settlements
+- Approve a pending settlement (step 1)
+- Login as `finance1` / `finance123` and approve the same settlement (step 2)
+- Settlement status changes to **finance_approved**
 
 ## Running Tests
 
+All test stages run inside Docker containers — no local `npm`, `node`, or Playwright install required.
+
+### Default suite (unit + frontend + backend)
+
 ```bash
-# All tests (unit + API — requires backend running)
+# Builds test images and runs all containerized stages.
 bash run_tests.sh
-
-# Unit tests only
-cd unit_tests && bash run_unit_tests.sh
-
-# API tests only (backend must be running)
-cd API_tests && bash run_api_tests.sh
 ```
+
+### Individual stages
+
+```bash
+bash run_tests.sh unit       # Pure unit tests (containerized, no DB)
+bash run_tests.sh frontend   # Frontend Vitest unit tests (containerized, no DB)
+bash run_tests.sh backend    # Backend Jest + postgres (auto-started in container)
+bash run_tests.sh api        # API curl smoke tests (full stack must be running on :3001)
+bash run_tests.sh e2e        # Playwright E2E in container (full stack must be running)
+```
+
+### API smoke tests
+
+```bash
+docker-compose up --build    # start the full stack
+bash run_tests.sh api        # run curl tests against :3001
+# or run both:
+bash run_tests.sh all-with-api
+```
+
+### E2E tests (Playwright)
+
+```bash
+# 1. Start the full stack
+docker-compose up --build
+
+# 2. Run E2E (Playwright runs inside a container — no local install needed)
+bash run_tests.sh e2e
+# or combined with all other stages:
+bash run_tests.sh all-with-e2e
+```
+
+### How it works
+
+`run_tests.sh` uses `docker compose --profile test run` for every stage. Each test image installs its dependencies at **image build time** — nothing is installed at runtime on the host. The `api` stage runs `curl`/`jq` inside an Alpine container; the `e2e` stage runs Playwright inside the official Playwright container image. No local Node, npm, or Playwright installation is ever required.
 
 ## API Verification
 
 ```bash
-# 1. Login
+# 1. Login (admin)
 TOKEN=$(curl -s -X POST http://localhost:3001/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"admin123"}' | jq -r '.data.token')
 
-# 2. List listings
+# 2. List listings (public)
 curl -s http://localhost:3001/api/listings | jq '.data.items | length'
 
 # 3. Create listing (vendor)
@@ -107,7 +140,7 @@ curl -s -X POST http://localhost:3001/api/listings \
   -H "Authorization: Bearer $VTOKEN" \
   -d '{"title":"Test Poodle","description":"Healthy poodle puppy","breed":"Poodle","age":3,"region":"Oregon","priceUsd":900}' | jq .
 
-# 4. Create export job
+# 4. Create export job (admin)
 curl -s -X POST http://localhost:3001/api/exports/jobs \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
@@ -119,6 +152,41 @@ AUDIT_ID=$(curl -s http://localhost:3001/api/admin/audit \
 
 curl -s http://localhost:3001/api/admin/audit/$AUDIT_ID/verify \
   -H "Authorization: Bearer $TOKEN" | jq .
+
+# 6. Settlement approval flow (two-step)
+RTOKEN=$(curl -s -X POST http://localhost:3001/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"reviewer1","password":"reviewer123"}' | jq -r '.data.token')
+
+FTOKEN=$(curl -s -X POST http://localhost:3001/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"finance1","password":"finance123"}' | jq -r '.data.token')
+
+# Generate monthly settlements (admin)
+MONTH=$(date +%Y-%m)
+curl -s -X POST http://localhost:3001/api/settlements/generate-monthly \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "{\"month\":\"$MONTH\"}" | jq '.data.generatedCount'
+
+# Get a settlement ID
+SETTLE_ID=$(curl -s http://localhost:3001/api/settlements \
+  -H "Authorization: Bearer $TOKEN" | jq -r '.data[0].id')
+
+# Step 1: ops_reviewer approves
+curl -s -X POST http://localhost:3001/api/settlements/$SETTLE_ID/approve-step1 \
+  -H "Authorization: Bearer $RTOKEN" | jq '.data.status'
+
+# Step 2: finance_admin approves (different user — SoD enforced)
+curl -s -X POST http://localhost:3001/api/settlements/$SETTLE_ID/approve-step2 \
+  -H "Authorization: Bearer $FTOKEN" | jq '.data.status'
+# → "finance_approved"
+
+# Export approved settlement as CSV (vendor or admin)
+curl -s http://localhost:3001/api/settlements/export/$SETTLE_ID \
+  -H "Authorization: Bearer $TOKEN" \
+  -o settlement-export.csv
+head -2 settlement-export.csv
 ```
 
 ## Architecture Overview
@@ -144,10 +212,10 @@ curl -s http://localhost:3001/api/admin/audit/$AUDIT_ID/verify \
 | `DB_HOST`            | `postgres`                               | Database hostname      |
 | `DB_PORT`            | `5432`                                   | Database port          |
 | `DB_USER`            | `petmarket`                              | Database user          |
-| `DB_PASSWORD`        | **required in production** (`petmarket_secret` local only) | Database password — app refuses to start in production without a non-default value |
+| `DB_PASSWORD`        | **required in production** (`petmarket_secret` local only) | Database password      |
 | `DB_NAME`            | `petmarket`                              | Database name          |
-| `JWT_SECRET`         | **required in production** (dev default) | JWT signing key — app refuses to start in production without a non-default value |
-| `FIELD_ENCRYPTION_KEY` | **required in production** (dev default) | AES-256 encryption key — app refuses to start in production without a non-default value |
+| `JWT_SECRET`         | **required in production** (dev default) | JWT signing key        |
+| `FIELD_ENCRYPTION_KEY` | **required in production** (dev default) | AES-256 encryption key |
 | `BCRYPT_ROUNDS`      | `10`                                     | bcrypt work factor     |
 | `FRONTEND_ORIGIN`    | `http://localhost:3000`                  | CORS allowed origin    |
 | `VITE_API_BASE_URL`  | `http://localhost:3001`                  | Frontend API base URL  |

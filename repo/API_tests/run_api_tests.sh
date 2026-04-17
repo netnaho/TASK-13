@@ -2,7 +2,9 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BASE="http://localhost:3001/api"
+# Allow override via environment so the script can run inside a container
+# that reaches the backend via service name rather than localhost.
+BASE="${API_BASE_URL:-http://localhost:3001/api}"
 PASS=0
 FAIL=0
 TOTAL=0

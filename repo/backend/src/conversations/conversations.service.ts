@@ -65,7 +65,7 @@ export class ConversationsService {
     if (role === 'vendor') {
       qb.where('c.vendorId = :userId', { userId });
     } else if (role === 'shopper') {
-      qb.where(':userId = ANY(c.shopperIds)', { userId });
+      qb.where('CAST(:userId AS text) = ANY(c.shopperIds)', { userId });
     }
 
     if (filters.archived !== undefined) {
@@ -126,7 +126,7 @@ export class ConversationsService {
     const existing = await this.convRepo
       .createQueryBuilder('c')
       .where('c.listingId = :listingId', { listingId })
-      .andWhere(':shopperId = ANY(c.shopperIds)', { shopperId })
+      .andWhere('CAST(:shopperId AS text) = ANY(c.shopperIds)', { shopperId })
       .getOne();
 
     if (existing) return existing;

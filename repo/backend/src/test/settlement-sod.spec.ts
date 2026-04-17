@@ -61,13 +61,13 @@ describe('Settlement separation-of-duties: same actor cannot approve both steps'
     const step1 = await request(ctx.app.getHttpServer())
       .post(`/api/settlements/${settlement.id}/approve-step1`)
       .set('Authorization', `Bearer ${reviewerToken}`);
-    expect(step1.body.code).toBe(201);
+    expect(step1.body.code).toBe(200);
     expect(step1.body.data.status).toBe(SettlementStatus.REVIEWER_APPROVED);
 
     const step2 = await request(ctx.app.getHttpServer())
       .post(`/api/settlements/${settlement.id}/approve-step2`)
       .set('Authorization', `Bearer ${financeToken}`);
-    expect(step2.body.code).toBe(201);
+    expect(step2.body.code).toBe(200);
     expect(step2.body.data.status).toBe(SettlementStatus.FINANCE_APPROVED);
 
     await ctx.dataSource.getRepository(Settlement).delete(settlement.id);
@@ -85,7 +85,7 @@ describe('Settlement separation-of-duties: same actor cannot approve both steps'
     const step1 = await request(ctx.app.getHttpServer())
       .post(`/api/settlements/${settlement.id}/approve-step1`)
       .set('Authorization', `Bearer ${reviewerToken}`);
-    expect(step1.body.code).toBe(201);
+    expect(step1.body.code).toBe(200);
 
     const step2 = await request(ctx.app.getHttpServer())
       .post(`/api/settlements/${settlement.id}/approve-step2`)

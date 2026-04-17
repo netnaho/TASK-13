@@ -1,0 +1,22 @@
+# Build context: repo root (docker-compose passes context: .)
+# Installs unit test deps at build time; copies backend/src and frontend/src
+# for relative imports used by unit tests.
+FROM node:20-alpine
+WORKDIR /repo
+
+# Install unit test dependencies inside the image (no runtime npm install)
+COPY unit_tests/package*.json ./unit_tests/
+RUN cd unit_tests && npm ci --silent
+
+# Copy backend source — unit tests reference it via ../backend/src/...
+COPY backend/src ./backend/src
+COPY backend/tsconfig.json ./backend/tsconfig.json
+
+# Copy frontend lib — export-progress.test.ts imports ../frontend/src/lib/...
+COPY frontend/src/lib ./frontend/src/lib
+
+# Copy unit test sources last (invalidates cache only when tests change)
+COPY unit_tests/ ./unit_tests/
+
+WORKDIR /repo/unit_tests
+CMD ["node_modules/.bin/jest", "--forceExit", "--runInBand", "--verbose"]

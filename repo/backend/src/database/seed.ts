@@ -37,6 +37,18 @@ export async function runSeed(dataSource: DataSource): Promise<void> {
       password: 'shopper123',
       role: UserRole.SHOPPER,
     },
+    {
+      username: 'reviewer1',
+      email: 'reviewer1@petmarket.local',
+      password: 'reviewer123',
+      role: UserRole.OPS_REVIEWER,
+    },
+    {
+      username: 'finance1',
+      email: 'finance1@petmarket.local',
+      password: 'finance123',
+      role: UserRole.FINANCE_ADMIN,
+    },
   ];
 
   const userMap: Record<string, User> = {};

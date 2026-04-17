@@ -134,10 +134,14 @@ describe('Voice file access control', () => {
 
   // ── 1. Static route is blocked ───────────────────────────────────────────────
 
-  it('GET /uploads/voice/* is blocked without auth (401)', async () => {
+  it('GET /uploads/voice/* is not publicly served (404 — path not registered)', async () => {
+    // The static /uploads/voice path is NOT served by NestJS; the only valid
+    // route is the authenticated /api/conversations/voice/:fileName endpoint.
+    // A 404 (path not found) is the correct response — the file is unreachable
+    // without going through the authenticated API route.
     const res = await request(ctx.app.getHttpServer())
       .get(`/uploads/voice/${testFileName}`);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(404);
   });
 
   // ── 2. Unauthenticated on secure endpoint ────────────────────────────────────

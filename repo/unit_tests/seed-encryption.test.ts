@@ -75,6 +75,8 @@ describe('runSeed — email encryption', () => {
     'admin@petmarket.local',
     'vendor@petmarket.local',
     'shopper@petmarket.local',
+    'reviewer1@petmarket.local',
+    'finance1@petmarket.local',
   ];
 
   let userRepo: ReturnType<typeof makeRepo>;
@@ -85,8 +87,8 @@ describe('runSeed — email encryption', () => {
     await runSeed(ds as any);
   });
 
-  it('saves exactly three seed users', () => {
-    expect(userRepo.saved.length).toBe(3);
+  it('saves exactly five seed users', () => {
+    expect(userRepo.saved.length).toBe(5);
   });
 
   it('each seeded email starts with the "enc:" prefix', () => {
@@ -127,9 +129,11 @@ describe('runSeed — idempotency with existing encrypted users', () => {
   it('skips users that already exist — no duplicate save', async () => {
     const encryption = new EncryptionService();
     const existingUsers: Record<string, any> = {
-      admin:   { username: 'admin',   email: encryption.encrypt('admin@petmarket.local'),   id: 'existing-1' },
-      vendor:  { username: 'vendor',  email: encryption.encrypt('vendor@petmarket.local'),  id: 'existing-2' },
-      shopper: { username: 'shopper', email: encryption.encrypt('shopper@petmarket.local'), id: 'existing-3' },
+      admin:     { username: 'admin',     email: encryption.encrypt('admin@petmarket.local'),     id: 'existing-1' },
+      vendor:    { username: 'vendor',    email: encryption.encrypt('vendor@petmarket.local'),    id: 'existing-2' },
+      shopper:   { username: 'shopper',   email: encryption.encrypt('shopper@petmarket.local'),   id: 'existing-3' },
+      reviewer1: { username: 'reviewer1', email: encryption.encrypt('reviewer1@petmarket.local'), id: 'existing-4' },
+      finance1:  { username: 'finance1',  email: encryption.encrypt('finance1@petmarket.local'),  id: 'existing-5' },
     };
 
     const userRepo = makeRepo(existingUsers);

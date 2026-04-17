@@ -1,0 +1,15 @@
+# Exclude all node_modules — test images install them via npm ci at build time
+unit_tests/node_modules
+frontend/node_modules
+backend/node_modules
+e2e/node_modules
+
+# Exclude local build artifacts
+backend/dist
+frontend/dist
+**/coverage
+
+# Exclude git and editor files
+.git
+.gitignore
+*.md

@@ -55,6 +55,10 @@ describe('Protected routes: missing / invalid token → 401', () => {
 
   // ── helpers ───────────────────────────────────────────────────────────────
 
+  /**
+   * Asserts that a protected endpoint returns 401 for missing/invalid tokens.
+   * Also validates the full error envelope: code, msg (string), timestamp (ISO string).
+   */
   async function expectUnauthenticated(
     method: 'get' | 'post' | 'put' | 'patch' | 'delete',
     path: string,
@@ -62,16 +66,41 @@ describe('Protected routes: missing / invalid token → 401', () => {
     // (a) no token
     const noToken = await (request(ctx.app.getHttpServer()) as any)[method](path);
     expect(noToken.body.code).toBe(401);
+    expect(typeof noToken.body.msg).toBe('string');
+    expect(noToken.body.msg.length).toBeGreaterThan(0);
+    expect(noToken.body.timestamp).toBeDefined();
 
     // (b) malformed token (not a valid JWT shape)
     const badToken = await (request(ctx.app.getHttpServer()) as any)[method](path)
       .set('Authorization', INVALID_TOKEN);
     expect(badToken.body.code).toBe(401);
+    expect(typeof badToken.body.msg).toBe('string');
 
     // (c) well-formed JWT with a tampered/wrong signature
     const tamperedToken = await (request(ctx.app.getHttpServer()) as any)[method](path)
       .set('Authorization', TAMPERED_TOKEN);
     expect(tamperedToken.body.code).toBe(401);
+    expect(typeof tamperedToken.body.msg).toBe('string');
+  }
+
+  /**
+   * Asserts that a correctly-authenticated but wrong-role request returns 403
+   * with a complete error envelope.
+   */
+  async function expectForbidden(
+    method: 'get' | 'post' | 'put' | 'patch' | 'delete',
+    path: string,
+    token: string,
+    body?: Record<string, unknown>,
+  ): Promise<void> {
+    let req = (request(ctx.app.getHttpServer()) as any)[method](path)
+      .set('Authorization', `Bearer ${token}`);
+    if (body) req = req.send(body);
+    const res = await req;
+    expect(res.body.code).toBe(403);
+    expect(typeof res.body.msg).toBe('string');
+    expect(res.body.msg.length).toBeGreaterThan(0);
+    expect(res.body.timestamp).toBeDefined();
   }
 
   // ── Users ─────────────────────────────────────────────────────────────────
@@ -414,11 +443,13 @@ describe('Protected routes: authenticated but wrong role → 403', () => {
     expect(res.body.code).toBe(403);
   });
 
-  it('POST /query — vendor → 403', async () => {
+  it('POST /query — vendor querying restricted entity (users) → 403', async () => {
+    // Vendors may query their own listings (200) but are forbidden from querying
+    // cross-tenant entities like users and conversations.
     const res = await request(ctx.app.getHttpServer())
       .post('/api/query')
       .set('Authorization', `Bearer ${vendorToken}`)
-      .send({ entity: 'listings', page: 1, limit: 10 });
+      .send({ entity: 'users', page: 1, limit: 10 });
     expect(res.body.code).toBe(403);
   });
 
@@ -552,5 +583,84 @@ describe('Protected routes: authenticated but wrong role → 403', () => {
       .set('Authorization', `Bearer ${vendorToken}`)
       .send({ title: 'hi', body: 'hello' });
     expect(res.body.code).toBe(403);
+  });
+});
+
+// ── Response envelope observability ──────────────────────────────────────────
+// These tests verify that 401/403 responses carry a complete, useful error
+// envelope — not just a status code — across representative endpoints.
+
+describe('Response envelope: 401/403 have complete code+msg+timestamp body', () => {
+  let ctx2: TestContext;
+  let shopperTok: string;
+  let vendorTok: string;
+
+  beforeAll(async () => {
+    ctx2 = await createTestApp();
+    shopperTok = makeToken(ctx2.jwtService, FAKE_UUID, 'shopper', 'obs_shopper');
+    vendorTok  = makeToken(ctx2.jwtService, FAKE_UUID, 'vendor',  'obs_vendor');
+  }, 30000);
+
+  afterAll(async () => {
+    await ctx2.app.close();
+  });
+
+  it('GET /api/users/me — no auth → envelope has code=401, msg, timestamp', async () => {
+    const res = await request(ctx2.app.getHttpServer()).get('/api/users/me');
+    expect(res.body).toMatchObject({
+      code: 401,
+      msg: expect.any(String),
+      timestamp: expect.any(String),
+    });
+    expect(res.body.msg.length).toBeGreaterThan(0);
+    expect(new Date(res.body.timestamp).getTime()).not.toBeNaN();
+  });
+
+  it('GET /api/admin/campaigns — vendor auth → envelope has code=403, msg, timestamp', async () => {
+    const res = await request(ctx2.app.getHttpServer())
+      .get('/api/admin/campaigns')
+      .set('Authorization', `Bearer ${vendorTok}`);
+    expect(res.body).toMatchObject({
+      code: 403,
+      msg: expect.any(String),
+      timestamp: expect.any(String),
+    });
+  });
+
+  it('GET /api/admin/audit — shopper auth → envelope has code=403, msg, timestamp', async () => {
+    const res = await request(ctx2.app.getHttpServer())
+      .get('/api/admin/audit')
+      .set('Authorization', `Bearer ${shopperTok}`);
+    expect(res.body).toMatchObject({
+      code: 403,
+      msg: expect.any(String),
+      timestamp: expect.any(String),
+    });
+  });
+
+  it('POST /api/exports/jobs — shopper auth → envelope has code=403, msg', async () => {
+    const res = await request(ctx2.app.getHttpServer())
+      .post('/api/exports/jobs')
+      .set('Authorization', `Bearer ${shopperTok}`)
+      .send({ type: 'listings' });
+    expect(res.body).toMatchObject({ code: 403, msg: expect.any(String) });
+  });
+
+  it('PATCH /api/users/:id/role — vendor auth → 403 envelope', async () => {
+    const res = await request(ctx2.app.getHttpServer())
+      .patch(`/api/users/${FAKE_UUID}/role`)
+      .set('Authorization', `Bearer ${vendorTok}`)
+      .send({ role: 'admin' });
+    expect(res.body).toMatchObject({ code: 403, msg: expect.any(String), timestamp: expect.any(String) });
+  });
+
+  it('tampered JWT → 401 with msg referencing auth failure (not empty)', async () => {
+    const TAMPERED = 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    const res = await request(ctx2.app.getHttpServer())
+      .get('/api/credits/me')
+      .set('Authorization', TAMPERED);
+    expect(res.body.code).toBe(401);
+    expect(res.body.msg).toMatch(/unauthorized|invalid|token/i);
+    expect(res.body.timestamp).toBeDefined();
   });
 });
